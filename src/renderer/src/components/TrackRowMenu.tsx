@@ -7,6 +7,7 @@ import { usePlayerStore } from '../store/usePlayerStore'
 import { DeleteFileConfirmDialog } from './DeleteFileConfirmDialog'
 import { CratePickerModal } from './CratePickerModal'
 import { BulkEditModal } from './BulkEditModal'
+import { MoveToModal } from './MoveToModal'
 import { reanalyzeTrack } from '../lib/reanalyze'
 
 interface TrackRowMenuProps {
@@ -20,10 +21,12 @@ export function TrackRowMenu({ track, crateId }: TrackRowMenuProps): React.JSX.E
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [cratePickerOpen, setCratePickerOpen] = useState(false)
   const [editLabelsOpen, setEditLabelsOpen] = useState(false)
+  const [moveToOpen, setMoveToOpen] = useState(false)
   const [busy, setBusy] = useState(false)
 
   const triggerRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const {
     removeTrack,
@@ -43,8 +46,7 @@ export function TrackRowMenu({ track, crateId }: TrackRowMenuProps): React.JSX.E
         triggerRef.current?.contains(e.target as Node) ||
         menuRef.current?.contains(e.target as Node)
       ) return
-      setMenuOpen(false)
-      setMenuPos(null)
+      closeMenu()
     }
     document.addEventListener('mousedown', handle)
     return () => document.removeEventListener('mousedown', handle)
@@ -53,10 +55,14 @@ export function TrackRowMenu({ track, crateId }: TrackRowMenuProps): React.JSX.E
   // Close on scroll so menu doesn't float away from trigger
   useEffect(() => {
     if (!menuOpen) return
-    function handle(): void { setMenuOpen(false); setMenuPos(null) }
+    function handle(): void { closeMenu() }
     window.addEventListener('scroll', handle, true)
     return () => window.removeEventListener('scroll', handle, true)
   }, [menuOpen])
+
+  useEffect(() => () => {
+    if (closeTimerRef.current) clearTimeout(closeTimerRef.current)
+  }, [])
 
   function openMenu(): void {
     const rect = triggerRef.current?.getBoundingClientRect()
@@ -69,8 +75,29 @@ export function TrackRowMenu({ track, crateId }: TrackRowMenuProps): React.JSX.E
   }
 
   function closeMenu(): void {
+    if (closeTimerRef.current) clearTimeout(closeTimerRef.current)
+    closeTimerRef.current = null
     setMenuOpen(false)
     setMenuPos(null)
+  }
+
+  function scheduleCloseMenu(): void {
+    if (closeTimerRef.current) clearTimeout(closeTimerRef.current)
+    closeTimerRef.current = setTimeout(closeMenu, 180)
+  }
+
+  function cancelScheduledClose(): void {
+    if (closeTimerRef.current) clearTimeout(closeTimerRef.current)
+    closeTimerRef.current = null
+  }
+
+  function handleFocusLeave(e: React.FocusEvent<HTMLElement>): void {
+    const next = e.relatedTarget
+    if (
+      next instanceof Node &&
+      (triggerRef.current?.contains(next) || menuRef.current?.contains(next))
+    ) return
+    scheduleCloseMenu()
   }
 
   const act = (fn: () => void) => () => { fn(); closeMenu() }
@@ -123,18 +150,9 @@ export function TrackRowMenu({ track, crateId }: TrackRowMenuProps): React.JSX.E
     await window.api.db.updateBoardId(track.id, boardId)
   }
 
-  async function handleMoveFile(): Promise<void> {
+  function handleMoveFile(): void {
     closeMenu()
-    if (!track.filepath) return
-    const folder = await window.api.openFolder()
-    if (!folder) return
-    try {
-      const result = await window.api.fs.moveFile(track.filepath, folder)
-      if (result.ok) toast.success('File moved')
-      else toast.error('Move failed', { description: result.error })
-    } catch (err) {
-      toast.error('Move failed', { description: (err as Error).message })
-    }
+    setMoveToOpen(true)
   }
 
   async function handleRemoveFromCrate(): Promise<void> {
@@ -190,6 +208,10 @@ export function TrackRowMenu({ track, crateId }: TrackRowMenuProps): React.JSX.E
         zIndex: 9999,
         overflow: 'hidden',
       }}
+      onMouseEnter={cancelScheduledClose}
+      onMouseLeave={scheduleCloseMenu}
+      onFocus={cancelScheduledClose}
+      onBlur={handleFocusLeave}
       onClick={e => e.stopPropagation()}
     >
       {track.filepath && !isMissing && (
@@ -279,17 +301,31 @@ export function TrackRowMenu({ track, crateId }: TrackRowMenuProps): React.JSX.E
       <button
         ref={triggerRef}
         data-testid={`track-menu-${track.id}`}
-        onClick={() => menuOpen ? closeMenu() : openMenu()}
+        onMouseEnter={e => {
+          openMenu()
+          e.currentTarget.style.background = '#252535'
+          e.currentTarget.style.color = '#e8e8f0'
+        }}
+        onMouseLeave={e => {
+          scheduleCloseMenu()
+          e.currentTarget.style.background = 'none'
+          e.currentTarget.style.color = '#555'
+        }}
+        onFocus={openMenu}
+        onBlur={handleFocusLeave}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') closeMenu()
+        }}
         disabled={busy}
         title="More options"
+        aria-label={`More options for ${trackTitle}`}
+        aria-expanded={menuOpen}
         style={{
           border: 'none', background: 'none', color: '#555',
           cursor: busy ? 'default' : 'pointer', padding: '4px',
           borderRadius: '4px', display: 'flex',
           alignItems: 'center', justifyContent: 'center',
         }}
-        onMouseEnter={e => { e.currentTarget.style.background = '#252535'; e.currentTarget.style.color = '#e8e8f0' }}
-        onMouseLeave={e => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = '#555' }}
       >
         <MoreVertical size={16} />
       </button>
@@ -307,6 +343,12 @@ export function TrackRowMenu({ track, crateId }: TrackRowMenuProps): React.JSX.E
         trackIds={[track.id]}
         open={editLabelsOpen}
         onClose={() => setEditLabelsOpen(false)}
+      />
+
+      <MoveToModal
+        trackIds={[track.id]}
+        open={moveToOpen}
+        onClose={() => setMoveToOpen(false)}
       />
 
       <DeleteFileConfirmDialog

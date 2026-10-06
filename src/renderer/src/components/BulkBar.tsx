@@ -30,7 +30,7 @@ export function BulkBar({
   onSelectAll,
   crateId
 }: BulkBarProps): React.JSX.Element | null {
-  const { removeTracksFromCrateLocally, updateTrack } = useLibraryStore()
+  const { removeTracksFromCrateLocally, updateTrack, trackAnalysis } = useLibraryStore()
   const [editModalOpen, setEditModalOpen] = useState(false)
   const [moveModalOpen, setMoveModalOpen] = useState(false)
   const [cratePickerOpen, setCratePickerOpen] = useState(false)
@@ -47,6 +47,15 @@ export function BulkBar({
   const selectedArray = Array.from(selectedIds)
   const busy = analysis !== null
   const settled = analysis ? analysis.tally.ok + analysis.tally.failed + analysis.tally.skipped : 0
+  const activeTrackProgress = analysis
+    ? selectedArray.reduce((sum, id) => {
+        const progress = trackAnalysis.get(id)
+        return sum + (progress && progress.steps > 0 ? progress.step / progress.steps : 0)
+      }, 0)
+    : 0
+  const progressPercent = analysis
+    ? Math.min(100, Math.round(((settled + activeTrackProgress) / analysis.total) * 100))
+    : 0
 
   // Runs the same per-track routine the ⋮ menu's Re-analyze uses, four at a
   // time, so each card shows its own progress bar as its turn comes up. The
@@ -187,22 +196,48 @@ export function BulkBar({
           Artwork
         </Button>
 
-        {/* Re-analyze — BPM and key for every selected track. While it runs
-            this turns into a live count plus a way out of it, since a full
-            selection can take minutes: each track is a separate librosa pass
-            over the whole file. */}
-        {busy ? (
-          <>
+        {/* Keep the original control in place during analysis. The green fill
+            reflects both settled tracks and live per-track sidecar progress. */}
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={busy}
+          onClick={() => void handleReanalyze()}
+          className="text-xs"
+          aria-label={
+            busy
+              ? `Re-analyzing ${settled} of ${analysis.total} tracks`
+              : 'Re-analyze selected tracks'
+          }
+          style={{
+            position: 'relative',
+            overflow: 'hidden',
+            isolation: 'isolate',
+            borderColor: busy ? '#287557' : '#7f77dd',
+            color: busy ? '#d5f5e8' : '#a09be8'
+          }}
+        >
+          {busy && (
             <span
+              aria-hidden="true"
               style={{
-                fontSize: '11px',
-                color: '#3db88a',
-                flexShrink: 0,
-                fontVariantNumeric: 'tabular-nums'
+                position: 'absolute',
+                zIndex: 0,
+                inset: '0 auto 0 0',
+                width: `${progressPercent}%`,
+                background: 'linear-gradient(90deg, #1d9e7555, #1d9e7533)',
+                transition: 'width 250ms ease-out',
+                pointerEvents: 'none'
               }}
-            >
-              ⟳ Re-analyzing {settled} / {analysis.total}
-            </span>
+            />
+          )}
+          <span style={{ position: 'relative', zIndex: 1, fontVariantNumeric: 'tabular-nums' }}>
+            {busy ? `Re-analyzing ${settled} / ${analysis.total}` : 'Re-analyze'}
+          </span>
+        </Button>
+
+        {busy && (
+          <>
             <Button
               variant="outline"
               size="sm"
@@ -215,16 +250,6 @@ export function BulkBar({
               Stop
             </Button>
           </>
-        ) : (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => void handleReanalyze()}
-            className="text-xs"
-            style={{ borderColor: '#7f77dd', color: '#a09be8' }}
-          >
-            Re-analyze
-          </Button>
         )}
 
         {/* Add to crate button */}

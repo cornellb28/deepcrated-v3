@@ -90,6 +90,7 @@ export function PlayerBar(): React.JSX.Element | null {
   // would double-fire alongside this one.
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent): void => {
+      if (e.defaultPrevented) return
       if (!currentTrack) return
       const target = e.target as HTMLElement | null
       const inInput = !!target && target.closest('input, textarea, [contenteditable]') != null
@@ -187,7 +188,8 @@ export function PlayerBar(): React.JSX.Element | null {
         <button
           onClick={playPrev}
           disabled={!hasPrev}
-          title="Previous"
+          title="Previous track"
+          aria-label="Previous track"
           style={playerBtnStyle(hasPrev)}
         >
           ⏮
@@ -195,6 +197,7 @@ export function PlayerBar(): React.JSX.Element | null {
         <button
           onClick={togglePlayPause}
           title={isPlaying ? 'Pause' : 'Play'}
+          aria-label={isPlaying ? 'Pause' : 'Play'}
           style={{
             ...playerBtnStyle(true),
             width: '30px',
@@ -206,7 +209,7 @@ export function PlayerBar(): React.JSX.Element | null {
         >
           {isPlaying ? '⏸' : '▶'}
         </button>
-        <button onClick={playNext} disabled={!hasNext} title="Next" style={playerBtnStyle(hasNext)}>
+        <button onClick={playNext} disabled={!hasNext} title="Next track" aria-label="Next track" style={playerBtnStyle(hasNext)}>
           ⏭
         </button>
       </div>

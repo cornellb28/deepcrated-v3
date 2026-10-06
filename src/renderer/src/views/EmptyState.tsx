@@ -1,22 +1,16 @@
 import React from 'react'
 import { Button } from '@renderer/components/ui/button'
-import { AccountButton } from '@renderer/components/AccountButton'
 import { useLibraryStore } from '../store/useLibraryStore'
 import { useFileDrop } from '../hooks/useFileDrop'
 
 interface EmptyStateProps {
   onImport: () => void
   onImportPaths: (paths: string[]) => void
-  // Null while a stored session is still being restored.
-  auth: AuthState | null
-  onOpenAccount: () => void
 }
 
 export function EmptyState({
   onImport,
   onImportPaths,
-  auth,
-  onOpenAccount
 }: EmptyStateProps): React.JSX.Element {
   const { isAnalyzing } = useLibraryStore()
   const { isDragging, dropHandlers } = useFileDrop({ onDrop: onImportPaths })
@@ -170,10 +164,6 @@ export function EmptyState({
             You can also drag and drop a folder anywhere in the app
           </p>
 
-          {/* Deliberately below the import CTA and quieter than it: an
-              account is optional here, and nothing on this screen waits on
-              one. */}
-          <AccountButton auth={auth} onOpenAccount={onOpenAccount} tone="hint" />
         </>
       )}
     </div>

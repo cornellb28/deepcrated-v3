@@ -11,10 +11,9 @@ import { useFileDrop } from '../hooks/useFileDrop'
 import { MoveConfirmDialog } from '../components/MoveConfirmDialog'
 import { NewFolderModal } from '../components/NewFolderModal'
 import { DeleteFolderDialog, type DeleteFolderChoice } from '../components/DeleteFolderDialog'
-import { MoveToModal } from '../components/MoveToModal'
 import { RenameFolderDialog } from '../components/RenameFolderDialog'
 import { RenameFilesDialog } from '../components/RenameFilesDialog'
-import { FilePen, FolderPen, Library, Plus, RotateCw, Trash2 } from 'lucide-react'
+import { ChevronLeft, ChevronRight, FilePen, FolderPen, Library, Plus, RotateCw, Trash2 } from 'lucide-react'
 
 // Shared with MoveFileButton's single-track "Move to..." confirmation —
 // dismissing one dismisses both, they're the same underlying concern.
@@ -23,9 +22,10 @@ const HIGHLIGHT_DURATION_MS = 1800
 
 interface FolderViewProps {
   libraryRoots: LibraryRoot[] // all registered library roots
+  onRootsChanged: () => Promise<void>
 }
 
-export function FolderView({ libraryRoots }: FolderViewProps): React.JSX.Element {
+export function FolderView({ libraryRoots, onRootsChanged }: FolderViewProps): React.JSX.Element {
   // `folders`/`folderCounts` live in the shared store, populated once at
   // startup and kept fresh by App.tsx's single debounced onFoldersChanged
   // subscription — this view just reads them, it doesn't fetch its own copy.
@@ -49,8 +49,8 @@ export function FolderView({ libraryRoots }: FolderViewProps): React.JSX.Element
   // Opens NewFolderModal, which owns the name, the track search and the
   // create-plus-move. Scoped to the folder currently being browsed.
   const [creatingFolder, setCreatingFolder] = useState(false)
-  // Removing the folder currently being browsed.
-  const [deletingFolder, setDeletingFolder] = useState(false)
+  // Folder selected for the shared remove/trash confirmation dialog.
+  const [deleteTargetId, setDeleteTargetId] = useState<number | null>(null)
   // Which folder the rename dialog is for. The header button passes the
   // folder being browsed; a card passes itself, so a subfolder can be
   // renamed without opening it first.
@@ -61,10 +61,7 @@ export function FolderView({ libraryRoots }: FolderViewProps): React.JSX.Element
   // the dialog open, and an open dialog with no stated reason reads as
   // "the button does nothing".
   const [deleteError, setDeleteError] = useState<string | null>(null)
-  // Set when the DJ picked "move the tracks somewhere else first" — hands
-  // off to the existing MoveToModal rather than reimplementing a
-  // destination picker, a recents list and a cross-device check.
-  const [movingOut, setMovingOut] = useState<number[] | null>(null)
+  const subfoldersSliderRef = useRef<HTMLDivElement>(null)
 
   // Folders currently flashing (see armHighlight) — a folder id lives here
   // for HIGHLIGHT_DURATION_MS after being created, imported, or moved in.
@@ -239,55 +236,86 @@ export function FolderView({ libraryRoots }: FolderViewProps): React.JSX.Element
     setAnalyzing(false)
   }
 
-  // The three outcomes of DeleteFolderDialog. 'move' is not a delete at all:
-  // it hands the tracks to MoveToModal and leaves the folder alone, so a
-  // partial or cancelled move can never strand files in a directory that has
-  // already been thrown away. Removing the emptied folder afterwards is a
-  // second, deliberate click.
-  async function handleDeleteFolder(choice: DeleteFolderChoice): Promise<void> {
-    // null is the root picker, which has no folder to remove. The button is
-    // not rendered there, so this is belt and braces.
-    if (currentFolderId === null) return
+  // A parent move is a job, not a deletion: the source folder stays in place
+  // so failed/colliding files are never stranded. The folder can be removed
+  // separately once its contents and child folders are dealt with.
+  async function handleDeleteFolder(folderId: number, choice: DeleteFolderChoice): Promise<void> {
+    const target = foldersById.get(folderId)
+    if (!target) return
 
     if (choice === 'move') {
-      const ids = tracksUnderCurrent.map((t) => t.id)
-      setDeletingFolder(false)
+      const descendants = descendantIdsByFolder.get(folderId) ?? new Set([folderId])
+      const ids = tracks
+        .filter((track) => track.folder_id !== null && descendants.has(track.folder_id))
+        .map((track) => track.id)
       if (ids.length === 0) {
+        setDeleteTargetId(null)
         toast.info('Nothing to move', { description: 'This folder has no tracks in it.' })
         return
       }
-      setMovingOut(ids)
+
+      setDeleteBusy(true)
+      setDeleteError(null)
+      try {
+        const result = await window.api.fs.moveFolderTracksToParent(folderId)
+        if (!result.ok || !result.jobId) {
+          setDeleteError(result.error ?? 'Could not move tracks to the parent folder')
+          return
+        }
+        upsertJob({
+          type: 'move',
+          jobId: result.jobId,
+          trackIds: result.trackIds ?? ids,
+          phase: 'running',
+          done: 0,
+          total: result.trackIds?.length ?? ids.length,
+          currentFile: '',
+          bytesCopied: 0,
+          totalBytes: 0,
+          crossDevice: false,
+          failed: []
+        })
+        setDeleteTargetId(null)
+        toast.info('Moving tracks into the parent folder', {
+          description: 'The folder and its subfolders remain until you remove them.'
+        })
+      } catch (err) {
+        setDeleteError((err as Error).message)
+      } finally {
+        setDeleteBusy(false)
+      }
       return
     }
 
     setDeleteBusy(true)
     setDeleteError(null)
     try {
-      const result = await window.api.fs.deleteFolder(currentFolderId, choice)
+      const isWatchedRoot = target.parent_folder_id === null
+      const result = await window.api.fs.deleteFolder(folderId, choice)
       if (!result.ok) {
         setDeleteError(result.error ?? 'Unknown error')
         toast.error('Could not remove the folder', { description: result.error ?? 'Unknown error' })
         return
       }
 
-      // Step out before the row disappears — staying would leave the view
-      // pointed at a folder that no longer exists.
-      setNavStack(navStack.slice(0, -1))
+      const targetIndex = navStack.indexOf(folderId)
+      if (targetIndex >= 0) setNavStack(navStack.slice(0, targetIndex))
       setSelectedIds(new Set())
-      setDeletingFolder(false)
+      setDeleteTargetId(null)
 
       if (choice === 'trash') {
-        toast.success(`Moved “${folderName}” to the Trash`, {
+        toast.success(`Moved “${target.name}” to the Trash`, {
           description: `${result.tracks ?? 0} track${result.tracks === 1 ? '' : 's'} removed from CrateCloud. Recoverable from Finder.`
         })
         // Track rows went with it, so the shared slice is stale.
         setTracks(await window.api.db.allTracks())
       } else {
-        toast.success(`Removed “${folderName}” from CrateCloud`, {
+        toast.success(`Removed “${target.name}” from CrateCloud`, {
           description: 'Your files are untouched. The tracks are still in your library.'
         })
         setTracks(await window.api.db.allTracks())
       }
+      if (isWatchedRoot) await onRootsChanged()
     } catch (err) {
       setDeleteError((err as Error).message)
       toast.error('Could not remove the folder', { description: (err as Error).message })
@@ -476,10 +504,29 @@ export function FolderView({ libraryRoots }: FolderViewProps): React.JSX.Element
         })()
       : null
 
+  const deleteTarget = deleteTargetId === null ? undefined : foldersById.get(deleteTargetId)
+  const deleteDialog = deleteTarget ? (
+    <DeleteFolderDialog
+      open
+      folderName={deleteTarget.name}
+      trackCount={getTrackCount(deleteTarget.id)}
+      subfolderCount={(childrenByParent.get(deleteTarget.id) ?? []).length}
+      isWatchedFolder={deleteTarget.parent_folder_id === null}
+      busy={deleteBusy}
+      error={deleteError}
+      onChoose={(choice) => void handleDeleteFolder(deleteTarget.id, choice)}
+      onCancel={() => {
+        setDeleteTargetId(null)
+        setDeleteError(null)
+      }}
+    />
+  ) : null
+
   if (currentFolderId === null) {
     return (
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         {renameDialog}
+        {deleteDialog}
         <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px' }}>
           <h2
             style={{
@@ -529,6 +576,10 @@ export function FolderView({ libraryRoots }: FolderViewProps): React.JSX.Element
                       if (!pending) navigateInto(rootFolderId)
                     }}
                     onRename={pending ? undefined : () => setRenameTargetId(rootFolderId)}
+                    onDelete={pending ? undefined : () => {
+                      setDeleteError(null)
+                      setDeleteTargetId(rootFolderId)
+                    }}
                   />
                 </div>
               )
@@ -839,20 +890,17 @@ export function FolderView({ libraryRoots }: FolderViewProps): React.JSX.Element
                   <FilePen size={15} />
                 </IconButton>
 
-                {/* Only below a library root. A root is un-registered from
-                    Settings > Library, not deleted here — the IPC refuses it
-                    too, but not offering the button is the better half of
-                    that guard. */}
-                {navStack.length > 1 && (
-                  <IconButton
-                    onClick={() => setDeletingFolder(true)}
-                    disabled={isAnalyzing}
-                    label="Remove this folder"
-                    danger
-                  >
-                    <Trash2 size={15} />
-                  </IconButton>
-                )}
+                <IconButton
+                  onClick={() => {
+                    setDeleteError(null)
+                    setDeleteTargetId(currentFolderId)
+                  }}
+                  disabled={isAnalyzing}
+                  label={currentFolder.parent_folder_id === null ? 'Remove this watched folder' : 'Remove this folder'}
+                  danger
+                >
+                  <Trash2 size={15} />
+                </IconButton>
               </div>
             )}
           </div>
@@ -875,6 +923,7 @@ export function FolderView({ libraryRoots }: FolderViewProps): React.JSX.Element
       )}
 
       {renameDialog}
+      {deleteDialog}
 
       <RenameFilesDialog
         open={renamingFiles}
@@ -883,35 +932,6 @@ export function FolderView({ libraryRoots }: FolderViewProps): React.JSX.Element
         onClose={() => setRenamingFiles(false)}
         onRenamed={() => void reloadTracks()}
       />
-
-      <DeleteFolderDialog
-        open={deletingFolder}
-        folderName={folderName}
-        trackCount={totalTracks}
-        subfolderCount={subfolders.length}
-        busy={deleteBusy}
-        error={deleteError}
-        onChoose={(choice) => void handleDeleteFolder(choice)}
-        onCancel={() => {
-          setDeletingFolder(false)
-          setDeleteError(null)
-        }}
-      />
-
-      {/* The "move the tracks out first" branch. The folder is deliberately
-          left in place — see handleDeleteFolder. */}
-      {movingOut !== null && (
-        <MoveToModal
-          trackIds={movingOut}
-          open
-          onClose={() => setMovingOut(null)}
-          onMoveStarted={() => {
-            toast.info('Moving tracks out', {
-              description: `Once it finishes, “${folderName}” will be empty and you can remove it.`
-            })
-          }}
-        />
-      )}
 
       {/* ── Scrollable content ─────────────────────── */}
       <div
@@ -922,39 +942,74 @@ export function FolderView({ libraryRoots }: FolderViewProps): React.JSX.Element
           outlineOffset: '-2px'
         }}
       >
-        {/* Subfolders grid */}
+        {/* Subfolders grid or horizontal slider for larger collections */}
         {subfolders.length > 0 && (
           <div style={{ padding: '20px 24px' }}>
-            <h2
-              style={{
-                fontSize: '11px',
-                fontWeight: 500,
-                letterSpacing: '1px',
-                textTransform: 'uppercase',
-                color: '#444',
-                marginBottom: '14px'
-              }}
-            >
-              Subfolders
-            </h2>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
+              <h2
+                style={{
+                  fontSize: '11px',
+                  fontWeight: 500,
+                  letterSpacing: '1px',
+                  textTransform: 'uppercase',
+                  color: '#444',
+                  margin: 0
+                }}
+              >
+                Subfolders
+              </h2>
+              {subfolders.length > 5 && (
+                <div style={{ display: 'flex', gap: '5px' }}>
+                  <IconButton
+                    label="Scroll subfolders left"
+                    onClick={() => subfoldersSliderRef.current?.scrollBy({ left: -360, behavior: 'smooth' })}
+                  >
+                    <ChevronLeft size={14} />
+                  </IconButton>
+                  <IconButton
+                    label="Scroll subfolders right"
+                    onClick={() => subfoldersSliderRef.current?.scrollBy({ left: 360, behavior: 'smooth' })}
+                  >
+                    <ChevronRight size={14} />
+                  </IconButton>
+                </div>
+              )}
+            </div>
             <div
+              ref={subfolders.length > 5 ? subfoldersSliderRef : undefined}
+              role={subfolders.length > 5 ? 'region' : undefined}
+              aria-label={subfolders.length > 5 ? 'Subfolders' : undefined}
+              tabIndex={subfolders.length > 5 ? 0 : undefined}
               style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
-                gap: '16px'
+                display: subfolders.length > 5 ? 'flex' : 'grid',
+                gridTemplateColumns: subfolders.length > 5 ? undefined : 'repeat(auto-fill, minmax(160px, 1fr))',
+                gap: '16px',
+                minWidth: 0,
+                maxWidth: '100%',
+                overflowX: subfolders.length > 5 ? 'auto' : undefined,
+                overflowY: 'hidden',
+                scrollBehavior: 'smooth',
+                scrollSnapType: subfolders.length > 5 ? 'x proximity' : undefined,
+                padding: subfolders.length > 5 ? '8px' : 0,
+                margin: subfolders.length > 5 ? '-8px' : 0
               }}
             >
               {subfolders.map((folder) => (
-                <FolderCard
-                  key={folder.id}
-                  name={folder.name}
-                  path={folder.path ?? folder.name}
-                  trackCount={getTrackCount(folder.id)}
-                  artworkHashes={getArtworkForFolder(folder.id)}
-                  highlighted={highlightedFolderIds.has(folder.id)}
-                  onClick={() => navigateInto(folder.id)}
-                  onRename={() => setRenameTargetId(folder.id)}
-                />
+                <div key={folder.id} style={subfolders.length > 5 ? { flex: '0 0 176px', minWidth: 0, scrollSnapAlign: 'start' } : undefined}>
+                  <FolderCard
+                    name={folder.name}
+                    path={folder.path ?? folder.name}
+                    trackCount={getTrackCount(folder.id)}
+                    artworkHashes={getArtworkForFolder(folder.id)}
+                    highlighted={highlightedFolderIds.has(folder.id)}
+                    onClick={() => navigateInto(folder.id)}
+                    onRename={() => setRenameTargetId(folder.id)}
+                    onDelete={() => {
+                      setDeleteError(null)
+                      setDeleteTargetId(folder.id)
+                    }}
+                  />
+                </div>
               ))}
             </div>
           </div>

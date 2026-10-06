@@ -15,9 +15,9 @@ import { describePlan } from '@renderer/lib/plan'
 interface AccountProfileProps {
   user: AuthUser
   entitlement: Entitlement | null
-  // Refreshing re-reads the row; the parent owns auth state, so the new
-  // entitlement goes back up rather than being held here.
-  onRefreshed: (entitlement: Entitlement | null) => void
+  // The parent owns auth state, so refreshed session + entitlement return
+  // together rather than being held as a second copy here.
+  onRefreshed: (state: AuthState) => void
   onSignOut: () => void
   signingOut: boolean
 }
@@ -45,8 +45,18 @@ export function AccountProfile({
   signingOut
 }: AccountProfileProps): React.JSX.Element {
   const [refreshing, setRefreshing] = useState(false)
-  const plan = describePlan(entitlement)
+  const [failedAvatarUrl, setFailedAvatarUrl] = useState<string | null>(null)
+  const plan = entitlement
+    ? describePlan(entitlement)
+    : {
+        name: 'Plan unavailable',
+        tagline: 'Connect to the internet and refresh to read your account plan.',
+        note: null,
+        includes: [],
+        paid: false
+      }
   const since = memberSince(user.created_at)
+
 
   // Worth having even though the webhook does not exist yet: a plan bought
   // on the website changes a row the desktop app has already read, and the
@@ -54,13 +64,13 @@ export function AccountProfile({
   async function handleRefresh(): Promise<void> {
     setRefreshing(true)
     try {
-      const result = await window.api.auth.refreshEntitlement()
+      const result = await window.api.auth.refresh()
       if (!result.ok) {
         toast.error('Could not check your plan', { description: 'Try again when you are online.' })
         return
       }
-      onRefreshed(result.entitlement)
-      const next = describePlan(result.entitlement)
+      onRefreshed(result.state)
+      const next = describePlan(result.state.entitlement)
       if (next.name === plan.name) toast.success(`Still on ${next.name}`)
       else toast.success(`You are now on ${next.name}`)
     } finally {
@@ -97,7 +107,15 @@ export function AccountProfile({
             flexShrink: 0
           }}
         >
-          {user.email?.trim()[0]?.toUpperCase() ?? '♪'}
+          {user.avatarUrl && failedAvatarUrl !== user.avatarUrl ? (
+            <img
+              src={user.avatarUrl}
+              alt=""
+              referrerPolicy="no-referrer"
+              onError={() => setFailedAvatarUrl(user.avatarUrl)}
+              style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }}
+            />
+          ) : (user.displayName?.trim()[0] ?? user.email?.trim()[0] ?? '♪').toUpperCase()}
         </div>
 
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -110,7 +128,7 @@ export function AccountProfile({
               textOverflow: 'ellipsis'
             }}
           >
-            {user.email ?? 'Signed in'}
+            {user.displayName || user.email || 'Signed in'}
           </div>
           <div style={{ fontSize: '11px', color: '#555', marginTop: '3px' }}>
             {providerLabel(user.provider)}

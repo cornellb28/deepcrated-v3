@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { FolderPen } from 'lucide-react'
+import { FolderPen, Trash2 } from 'lucide-react'
 import { MosaicArtwork } from './MosaicArtwork'
 
 interface FolderCardProps {
@@ -12,6 +12,8 @@ interface FolderCardProps {
   // Renaming a subfolder without opening it first. Optional so the card
   // stays usable anywhere that has no rename to offer.
   onRename?: () => void
+  // Removing or trashing a folder without opening it first.
+  onDelete?: () => void
   // Brief one-shot flash — used for a folder that was just created,
   // imported, or moved into the grid currently being rendered. Plays once;
   // the caller is responsible for clearing it back to false after the
@@ -31,6 +33,7 @@ export function FolderCard({
   artworkHashes,
   onClick,
   onRename,
+  onDelete,
   highlighted
 }: FolderCardProps): React.JSX.Element {
   // The rename button appears on hover rather than sitting there permanently
@@ -105,6 +108,36 @@ export function FolderCard({
           }}
         >
           <FolderPen size={12} />
+        </button>
+      )}
+      {onDelete && hovered && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation()
+            onDelete()
+          }}
+          title={`Remove or trash "${name}"`}
+          aria-label={`Remove or trash ${name}`}
+          style={{
+            position: 'absolute',
+            top: '12px',
+            right: onRename ? '42px' : '12px',
+            zIndex: 2,
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            width: '24px',
+            height: '24px',
+            borderRadius: '6px',
+            background: '#13131bdd',
+            border: '0.5px solid #2e2e3e',
+            color: '#a09be8',
+            cursor: 'pointer',
+            fontFamily: 'inherit'
+          }}
+        >
+          <Trash2 size={12} />
         </button>
       )}
       {/* Mosaic artwork */}

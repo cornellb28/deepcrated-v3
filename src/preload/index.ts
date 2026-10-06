@@ -3,20 +3,42 @@ import { electronAPI } from '@electron-toolkit/preload'
 
 interface AuthStatePayload {
   configured: boolean
-  user: { id: string; email: string | null } | null
+  status: 'signedOut' | 'awaitingBrowser' | 'signedIn' | 'expired'
+  user: {
+    id: string
+    email: string | null
+    displayName: string | null
+    avatarUrl: string | null
+    provider: string | null
+    created_at: string | null
+  } | null
   // A hand-kept mirror of main/auth.ts's Entitlement, narrowed to what
   // this payload's consumers read. It cannot import that type — preload
   // compiles under tsconfig.node.json, which does not see the renderer's
   // ambient globals — so a plan value added there has to be added here too.
   entitlement: {
     plan: 'free' | 'cloud_mobile' | 'cloud_mobile_plus'
-    status: string
+    status:
+      | 'active'
+      | 'trialing'
+      | 'past_due'
+      | 'canceled'
+      | 'unpaid'
+      | 'incomplete'
+      | 'incomplete_expired'
+      | 'paused'
+      | 'revoked'
+    current_period_end: string | null
+    cancel_at_period_end: boolean
     seats: number
   } | null
   persistent: boolean
+  offline: boolean
+  confirmingPurchase: boolean
+  links: Record<'signIn' | 'createAccount' | 'passwordReset' | 'account' | 'portal', boolean>
   error?: string
-  // Set only when the session arrived from a password-reset link.
-  recovery?: boolean
+  // Set only on the state pushed after the one-time-code exchange succeeds.
+  justSignedIn?: boolean
 }
 
 interface ImportProgressPayload {
@@ -179,18 +201,14 @@ const api = {
   // what they are entitled to.
   auth: {
     state: () => ipcRenderer.invoke('auth:state'),
-    signIn: (email: string, password: string) =>
-      ipcRenderer.invoke('auth:sign-in', email, password),
-    signUp: (email: string, password: string) =>
-      ipcRenderer.invoke('auth:sign-up', email, password),
-    resendConfirmation: (email: string) => ipcRenderer.invoke('auth:resend-confirmation', email),
-    updatePassword: (password: string) => ipcRenderer.invoke('auth:update-password', password),
+    signIn: () => ipcRenderer.invoke('auth:sign-in'),
+    createAccount: () => ipcRenderer.invoke('auth:create-account'),
+    cancelSignIn: () => ipcRenderer.invoke('auth:cancel-sign-in'),
+    reopenBrowser: () => ipcRenderer.invoke('auth:reopen-browser'),
+    openDestination: (destination: 'signIn' | 'createAccount' | 'passwordReset' | 'account' | 'portal') =>
+      ipcRenderer.invoke('auth:open-destination', destination),
     signOut: () => ipcRenderer.invoke('auth:sign-out'),
-    resetPassword: (email: string) => ipcRenderer.invoke('auth:reset-password', email),
-    // Resolves when the system browser opens, not when sign-in completes —
-    // the result arrives on onAuthChanged.
-    google: () => ipcRenderer.invoke('auth:google'),
-    refreshEntitlement: () => ipcRenderer.invoke('auth:refresh-entitlement')
+    refresh: () => ipcRenderer.invoke('auth:refresh')
   },
 
   // Pushed on launch-restore, on the OAuth callback, and on sign-out. The
@@ -384,6 +402,8 @@ const api = {
     // sends the directory to the OS Trash and removes the track rows too.
     deleteFolder: (folderId: number, mode: 'library' | 'trash') =>
       ipcRenderer.invoke('fs:delete-folder', folderId, mode),
+    moveFolderTracksToParent: (folderId: number) =>
+      ipcRenderer.invoke('fs:move-folder-tracks-to-parent', folderId),
     renameFolder: (folderId: number, newName: string) =>
       ipcRenderer.invoke('fs:rename-folder', folderId, newName),
     // apply:false is a dry run — returns exactly what WOULD happen so the

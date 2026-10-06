@@ -1,20 +1,19 @@
-// ── Auth ─────────────────────────────────────────────────────────────────
-// Email/password and Google OAuth against Supabase, plus the entitlement
-// lookup the renderer reads.
-//
-// Google in Electron is deliberately NOT an embedded webview: Google blocks
-// OAuth from embedded browser frames (disallowed_useragent), and a frame
-// that could read the credentials would defeat the point anyway. So the flow
-// is system browser -> Supabase -> cratecloud:// deep link back into the
-// app. index.ts owns the protocol registration and hands the URL here.
-//
-// The pure URL parsing lives in authCallback.ts so it can be unit-tested;
-// this module imports electron and cannot be.
+// ── Browser-first account auth ──────────────────────────────────────────
+// Supabase sessions and entitlement reads stay in main. The renderer receives
+// only derived profile/plan state; tokens never cross the preload boundary.
 
 import { shell } from 'electron'
-import { getClient, isConfigured, MISSING_CONFIG_MESSAGE, type Session } from './supabase'
+import { getClient, isConfigured, type Session } from './supabase'
 import { saveSession, loadSession, clearSession, isPersistenceAvailable } from './authStore'
-import { CALLBACK_PROTOCOL, CALLBACK_URL, parseCallbackUrl } from './authCallback'
+import {
+  CALLBACK_PROTOCOL,
+  parseCallbackUrl,
+  beginFlow,
+  clearFlow,
+  getPendingFlow,
+  runHandoff,
+  validRedeemUrl
+} from './authCallback'
 import { refreshDelayMs, NETWORK_RETRY_DELAY_MS } from './sessionRefresh'
 
 export { CALLBACK_PROTOCOL, parseCallbackUrl }
@@ -23,22 +22,17 @@ export type { ParsedCallback } from './authCallback'
 export interface AuthUser {
   id: string
   email: string | null
-  // Both are for the Account page to show a profile rather than a bare
-  // email address. 'email' when the DJ signed up with a password, 'google'
-  // after the OAuth round trip.
+  displayName: string | null
+  avatarUrl: string | null
   provider: string | null
   created_at: string | null
 }
 
-// Mirrors public.entitlements. The paid values are the cloud/mobile
-// subscription sold from the payments website; the retired desktop tiers
-// are deliberately absent.
+export type AuthStatus = 'signedOut' | 'awaitingBrowser' | 'signedIn' | 'expired'
+export type AuthDestination = 'signIn' | 'createAccount' | 'passwordReset' | 'account' | 'portal'
+
 export interface Entitlement {
-  // PROVISIONAL names (2026-09-23) — the tier lineup is not finalised and
-  // these will change. Nothing may branch on a specific paid value; "not
-  // 'free'" is the only durable test, and the name is for display.
   plan: 'free' | 'cloud_mobile' | 'cloud_mobile_plus'
-  // Every status Stripe can set, plus 'revoked' for a manual revocation.
   status:
     | 'active'
     | 'trialing'
@@ -49,122 +43,158 @@ export interface Entitlement {
     | 'incomplete_expired'
     | 'paused'
     | 'revoked'
-  // Null on a free row. Read together with `status` to decide entitlement —
-  // see the rule in the migration; a 'past_due' row inside its paid period
-  // is still entitled.
   current_period_end: string | null
   cancel_at_period_end: boolean
-  // Unused until a one-time desktop purchase exists.
   seats: number
 }
 
-// What the renderer sees. Never includes a token: the renderer has no use
-// for one (main makes every authenticated call) and handing it across the
-// bridge would put it somewhere a renderer-side script could read.
 export interface AuthState {
   configured: boolean
+  status: AuthStatus
   user: AuthUser | null
   entitlement: Entitlement | null
-  // False when safeStorage is unavailable, so the login screen can warn
-  // that this session will not survive a quit rather than silently failing.
   persistent: boolean
+  offline: boolean
+  confirmingPurchase: boolean
+  links: Record<AuthDestination, boolean>
 }
 
-export type AuthResult = { ok: true; state: AuthState } | { ok: false; error: string }
+// Plain http is only honoured for a localhost mock server in development.
+const REDEEM_URL = validRedeemUrl(import.meta.env.MAIN_VITE_DESKTOP_REDEEM_URL, import.meta.env.DEV)
 
-// Signup has a third outcome that is neither success-with-session nor
-// failure: the project has email confirmation on, so the account exists but
-// cannot be used until the link is clicked. Modelling that as an error (as
-// this did before) makes a success wear a failure's clothes and leaves the
-// UI with nowhere to put a Resend button.
-export type SignUpResult =
-  | { ok: true; needsConfirmation: false; state: AuthState }
-  | { ok: true; needsConfirmation: true; email: string }
-  | { ok: false; error: string }
-
-// The row every account is guaranteed to have by the DB trigger. Used only
-// when the row genuinely cannot be read — offline, or a brand-new signup
-// racing its own trigger — so the app never has to render a null plan.
-const FALLBACK_ENTITLEMENT: Entitlement = {
-  plan: 'free',
-  status: 'active',
-  current_period_end: null,
-  cancel_at_period_end: false,
-  seats: 1
+const AUTH_URLS: Record<AuthDestination, string | undefined> = {
+  signIn: import.meta.env.MAIN_VITE_AUTH_URL,
+  createAccount: import.meta.env.MAIN_VITE_AUTH_URL,
+  passwordReset: import.meta.env.MAIN_VITE_AUTH_PASSWORD_RESET_URL,
+  account: import.meta.env.MAIN_VITE_ACCOUNT_MANAGEMENT_URL,
+  portal: import.meta.env.MAIN_VITE_CUSTOMER_PORTAL_URL
 }
+
+// TODO(auth-handoff): Verify the full round trip against the real website
+// endpoints (create + redeem) on a PACKAGED build, for email and Google.
+// TODO(auth-handoff): Decide whether to rename the cratecloud:// scheme; it is
+// kept as-is because renaming breaks installed apps.
 
 let currentSession: Session | null = null
 let currentEntitlement: Entitlement | null = null
 let refreshTimer: ReturnType<typeof setTimeout> | null = null
-
-// index.ts registers a listener that forwards to the renderer over
-// 'auth:changed'. auth.ts has no window to push to and should not acquire
-// one — a refresh can complete at any moment, including while no window
-// exists, and this keeps that a wiring concern rather than an auth concern.
+let offline = false
+let expired = false
+let confirmingPurchase = false
+let cachedUser: AuthUser | null = null
+let refreshInFlight: Promise<AuthState> | null = null
+let restoreInFlight: Promise<AuthState> | null = null
 let onAuthStateChange: ((state: AuthState) => void) | null = null
 
 export function setAuthStateListener(listener: (state: AuthState) => void): void {
   onAuthStateChange = listener
 }
 
+function safeHttpsUrl(rawUrl: string | undefined): string | null {
+  if (!rawUrl) return null
+  try {
+    const parsed = new URL(rawUrl)
+    return parsed.protocol === 'https:' ? parsed.toString() : null
+  } catch {
+    return null
+  }
+}
+
+function isHandoffDestination(destination: AuthDestination): boolean {
+  return destination === 'signIn' || destination === 'createAccount'
+}
+
 function userFrom(session: Session | null): AuthUser | null {
   if (!session?.user) return null
+  const metadata = session.user.user_metadata ?? {}
   return {
     id: session.user.id,
     email: session.user.email ?? null,
+    displayName:
+      (typeof metadata.full_name === 'string' && metadata.full_name) ||
+      (typeof metadata.name === 'string' && metadata.name) ||
+      null,
+    avatarUrl:
+      typeof metadata.avatar_url === 'string'
+        ? metadata.avatar_url
+        : typeof metadata.picture === 'string'
+          ? metadata.picture
+          : null,
     provider: session.user.app_metadata?.provider ?? null,
     created_at: session.user.created_at ?? null
   }
 }
 
-export function getAuthState(): AuthState {
+function cachedUserFromStoredSession(): AuthUser | null {
+  const stored = loadSession()
+  if (!stored) return null
   return {
-    configured: isConfigured(),
-    user: userFrom(currentSession),
-    entitlement: currentEntitlement,
-    persistent: isPersistenceAvailable()
+    id: stored.user_id ?? 'offline-session',
+    email: stored.email ?? null,
+    displayName: stored.displayName ?? null,
+    avatarUrl: stored.avatarUrl ?? null,
+    provider: stored.provider ?? null,
+    created_at: stored.created_at ?? null
   }
 }
 
-// ── Entitlement ──────────────────────────────────────────────────────────
-// RLS restricts this to the caller's own row, so no user_id filter is
-// needed for correctness. maybeSingle() because "no row" is a legitimate
-// answer in the moments before the signup trigger has committed, and
-// .single() would turn that into an error.
-//
-// TODO(stripe-webhook): plan, status, current_period_end,
-// cancel_at_period_end and the stripe_* columns are written only by the
-// payments website's Stripe webhook, running under the service role. Until
-// that exists every account reads plan 'free', which is correct — the
-// desktop app is free, and the paid tiers are the cloud/mobile subscription
-// sold on the web.
-export async function fetchEntitlement(): Promise<Entitlement> {
-  if (!currentSession) return FALLBACK_ENTITLEMENT
+export function getAuthState(): AuthState {
+  const user = userFrom(currentSession) ?? (offline || expired ? cachedUser : null)
+  return {
+    configured: isConfigured(),
+    status: getPendingFlow()
+      ? 'awaitingBrowser'
+      : currentSession || (offline && user)
+        ? 'signedIn'
+        : expired
+          ? 'expired'
+          : 'signedOut',
+    user,
+    entitlement: currentEntitlement,
+    persistent: isPersistenceAvailable(),
+    offline,
+    confirmingPurchase,
+    links: Object.fromEntries(
+      (Object.keys(AUTH_URLS) as AuthDestination[]).map((key) => [
+        key,
+        safeHttpsUrl(AUTH_URLS[key]) !== null &&
+          // Browser sign-in is useless without somewhere to redeem the key.
+          (!isHandoffDestination(key) || REDEEM_URL !== null)
+      ])
+    ) as Record<AuthDestination, boolean>
+  }
+}
+
+function isRetryable(error: { name?: string; message?: string; status?: number }): boolean {
+  const name = error.name?.toLowerCase() ?? ''
+  const message = error.message?.toLowerCase() ?? ''
+  return (
+    name.includes('retryable') ||
+    /fetch|network|timeout|connection|offline/.test(message) ||
+    (error.status !== undefined && error.status >= 500)
+  )
+}
+
+// RLS limits this query to the current user's own entitlement row. This app
+// never writes entitlement state and deliberately does not persist a cache.
+export async function fetchEntitlement(): Promise<Entitlement | null> {
+  if (!currentSession) return null
   try {
     const { data, error } = await getClient()
       .from('entitlements')
       .select('plan, status, current_period_end, cancel_at_period_end, seats')
       .maybeSingle()
-
-    if (error || !data) return FALLBACK_ENTITLEMENT
-    return data as Entitlement
+    if (error) {
+      if (isRetryable(error)) offline = true
+      return null
+    }
+    return (data as Entitlement | null) ?? null
   } catch {
-    // Offline is not a reason to lock a DJ out of a free, local app.
-    return FALLBACK_ENTITLEMENT
+    offline = true
+    return null
   }
 }
 
-export async function refreshEntitlement(): Promise<Entitlement | null> {
-  if (!currentSession) return null
-  currentEntitlement = await fetchEntitlement()
-  return currentEntitlement
-}
-
-// ── Keeping the session alive ────────────────────────────────────────────
-// Cancels any pending refresh. Safe to call when none is scheduled, and
-// called on sign-out and before every reschedule so two timers can never
-// race each other into a double refresh (which would spend the rotated
-// token twice and invalidate the session).
 export function stopSessionRefresh(): void {
   if (refreshTimer) {
     clearTimeout(refreshTimer)
@@ -175,247 +205,252 @@ export function stopSessionRefresh(): void {
 function scheduleRefresh(session: Session): void {
   stopSessionRefresh()
   refreshTimer = setTimeout(() => void runScheduledRefresh(), refreshDelayMs(session.expires_at))
-  // Do not let a pending refresh hold the event loop open at quit time.
   refreshTimer.unref?.()
 }
 
-async function runScheduledRefresh(): Promise<void> {
-  const token = currentSession?.refresh_token
-  if (!token) return
-
-  try {
-    const { data, error } = await getClient().auth.refreshSession({ refresh_token: token })
-
-    if (error || !data.session) {
-      // A returned error is a DEFINITE rejection — revoked, or the token
-      // was already spent elsewhere. Nothing to retry: drop the session and
-      // let the renderer show the login screen.
-      console.log('[auth] scheduled refresh rejected, signing out locally')
-      stopSessionRefresh()
-      clearSession()
-      currentSession = null
-      currentEntitlement = null
-      onAuthStateChange?.(getAuthState())
-      return
-    }
-
-    // adoptSession persists the rotated token and schedules the next run.
-    onAuthStateChange?.(await adoptSession(data.session))
-  } catch (err) {
-    // A THROWN error is the network, not the token. Keep the session and
-    // try again shortly — a DJ whose wifi dropped mid-set should not be
-    // logged out for it.
-    console.error('[auth] scheduled refresh failed (will retry):', err)
-    stopSessionRefresh()
-    refreshTimer = setTimeout(() => void runScheduledRefresh(), NETWORK_RETRY_DELAY_MS)
-    refreshTimer.unref?.()
-  }
-}
-
-// Called after every successful authentication, from whichever path got
-// there. Persisting, scheduling the refresh and fetching the entitlement in
-// one place is what keeps the email/password, Google, launch-restore and
-// scheduled-refresh paths from drifting apart.
 async function adoptSession(session: Session): Promise<AuthState> {
   currentSession = session
+  cachedUser = userFrom(session)
+  offline = false
+  expired = false
   if (session.refresh_token) {
-    saveSession({ refresh_token: session.refresh_token, email: session.user?.email ?? undefined })
+    saveSession({
+      refresh_token: session.refresh_token,
+      user_id: cachedUser?.id,
+      email: cachedUser?.email ?? undefined,
+      displayName: cachedUser?.displayName ?? undefined,
+      avatarUrl: cachedUser?.avatarUrl ?? undefined,
+      provider: cachedUser?.provider ?? undefined,
+      created_at: cachedUser?.created_at ?? undefined
+    })
   }
   scheduleRefresh(session)
   currentEntitlement = await fetchEntitlement()
   return getAuthState()
 }
 
-// ── Email + password ─────────────────────────────────────────────────────
-
-export async function signUp(email: string, password: string): Promise<SignUpResult> {
-  if (!isConfigured()) return { ok: false, error: MISSING_CONFIG_MESSAGE }
+async function runScheduledRefresh(): Promise<void> {
+  const token = currentSession?.refresh_token
+  if (!token) return
   try {
-    const { data, error } = await getClient().auth.signUp({ email, password })
-    if (error) return { ok: false, error: error.message }
-
-    // No session means the project has email confirmation on: the account
-    // exists but cannot be used until the link is clicked. A real outcome,
-    // not an error — the UI shows a "check your inbox" state with a resend.
-    if (!data.session) return { ok: true, needsConfirmation: true, email }
-
-    return { ok: true, needsConfirmation: false, state: await adoptSession(data.session) }
-  } catch (err) {
-    return { ok: false, error: (err as Error).message }
-  }
-}
-
-// Supabase rate-limits this server-side (default once per 60s), and the
-// error says so plainly, so it is passed straight through rather than
-// second-guessed with a client-side cooldown that could disagree.
-export async function resendConfirmation(email: string): Promise<{ ok: boolean; error?: string }> {
-  if (!isConfigured()) return { ok: false, error: MISSING_CONFIG_MESSAGE }
-  try {
-    const { error } = await getClient().auth.resend({ type: 'signup', email })
-    if (error) return { ok: false, error: error.message }
-    return { ok: true }
-  } catch (err) {
-    return { ok: false, error: (err as Error).message }
-  }
-}
-
-export async function signIn(email: string, password: string): Promise<AuthResult> {
-  if (!isConfigured()) return { ok: false, error: MISSING_CONFIG_MESSAGE }
-  try {
-    const { data, error } = await getClient().auth.signInWithPassword({ email, password })
-    if (error) return { ok: false, error: error.message }
-    if (!data.session) return { ok: false, error: 'No session returned.' }
-    return { ok: true, state: await adoptSession(data.session) }
-  } catch (err) {
-    return { ok: false, error: (err as Error).message }
-  }
-}
-
-// redirectTo sends the email's link back into the app as a cratecloud://
-// deep link carrying type=recovery, rather than to Supabase's hosted page.
-// That deep link is what completeOAuthCallback routes to the set-a-new-
-// password screen.
-//
-// Requires cratecloud://auth-callback in Supabase's Redirect URLs — the same
-// entry Google sign-in already needs, so no extra dashboard config.
-export async function requestPasswordReset(email: string): Promise<AuthResult> {
-  if (!isConfigured()) return { ok: false, error: MISSING_CONFIG_MESSAGE }
-  try {
-    const { error } = await getClient().auth.resetPasswordForEmail(email, {
-      redirectTo: CALLBACK_URL
-    })
-    if (error) return { ok: false, error: error.message }
-    return { ok: true, state: getAuthState() }
-  } catch (err) {
-    return { ok: false, error: (err as Error).message }
-  }
-}
-
-// Called from the set-a-new-password screen. The recovery link's session is
-// already adopted by then (that is what authorises this call), so updateUser
-// needs only the new password.
-//
-// Supabase rejects a password matching the current one, and rejects one
-// shorter than the project minimum; both come back as plain messages the
-// renderer maps to readable wording.
-export async function updatePassword(newPassword: string): Promise<AuthResult> {
-  if (!isConfigured()) return { ok: false, error: MISSING_CONFIG_MESSAGE }
-  if (!currentSession) {
-    return { ok: false, error: 'That reset link has expired. Request a new one.' }
-  }
-  try {
-    const { data, error } = await getClient().auth.updateUser({ password: newPassword })
-    if (error) return { ok: false, error: error.message }
-    if (!data.user) return { ok: false, error: 'Password was not updated.' }
-    return { ok: true, state: getAuthState() }
-  } catch (err) {
-    return { ok: false, error: (err as Error).message }
-  }
-}
-
-// ── Google OAuth ─────────────────────────────────────────────────────────
-// skipBrowserRedirect because there is no browser here to redirect: we want
-// the URL back so it can be handed to the system browser instead.
-export async function startGoogleSignIn(): Promise<{ ok: boolean; error?: string }> {
-  if (!isConfigured()) return { ok: false, error: MISSING_CONFIG_MESSAGE }
-  try {
-    const { data, error } = await getClient().auth.signInWithOAuth({
-      provider: 'google',
-      options: { redirectTo: CALLBACK_URL, skipBrowserRedirect: true }
-    })
-    if (error) return { ok: false, error: error.message }
-    if (!data?.url) return { ok: false, error: 'Supabase returned no OAuth URL.' }
-
-    await shell.openExternal(data.url)
-    return { ok: true }
-  } catch (err) {
-    return { ok: false, error: (err as Error).message }
-  }
-}
-
-// Called by index.ts's open-url (macOS) and second-instance (Windows/Linux)
-// handlers.
-export type CallbackResult =
-  { ok: true; state: AuthState; recovery: boolean } | { ok: false; error: string }
-
-export async function completeOAuthCallback(rawUrl: string): Promise<CallbackResult> {
-  if (!isConfigured()) return { ok: false, error: MISSING_CONFIG_MESSAGE }
-
-  const parsed = parseCallbackUrl(rawUrl)
-  if (parsed.kind === 'none') return { ok: false, error: 'Not an auth callback.' }
-  if (parsed.kind === 'error') return { ok: false, error: parsed.error ?? 'Sign-in was cancelled.' }
-
-  try {
-    // A recovery link adopts its session exactly like a sign-in — that
-    // session is what authorises updateUser — but the caller is told so it
-    // can show the set-a-new-password screen instead of just dropping the
-    // DJ into the app with the password they had forgotten.
-    if (parsed.kind === 'tokens' || parsed.kind === 'recovery') {
-      const { data, error } = await getClient().auth.setSession({
-        access_token: parsed.accessToken as string,
-        refresh_token: parsed.refreshToken as string
-      })
-      if (error) return { ok: false, error: error.message }
-      if (!data.session) return { ok: false, error: 'Callback produced no session.' }
-      return {
-        ok: true,
-        state: await adoptSession(data.session),
-        recovery: parsed.kind === 'recovery'
-      }
-    }
-
-    const { data, error } = await getClient().auth.exchangeCodeForSession(parsed.code as string)
-    if (error) return { ok: false, error: error.message }
-    if (!data.session) return { ok: false, error: 'Callback produced no session.' }
-    return { ok: true, state: await adoptSession(data.session), recovery: false }
-  } catch (err) {
-    return { ok: false, error: (err as Error).message }
-  }
-}
-
-// ── Launch + sign out ────────────────────────────────────────────────────
-// Trades the stored refresh token for a fresh session. Supabase rotates
-// refresh tokens, so the new one must be written back — otherwise the next
-// launch would present a token that has already been spent.
-export async function restoreSession(): Promise<AuthState> {
-  if (!isConfigured()) return getAuthState()
-
-  const stored = loadSession()
-  if (!stored) return getAuthState()
-
-  try {
-    const { data, error } = await getClient().auth.refreshSession({
-      refresh_token: stored.refresh_token
-    })
+    const { data, error } = await getClient().auth.refreshSession({ refresh_token: token })
     if (error || !data.session) {
-      // Genuinely expired or revoked — the one case the brief calls out as
-      // a legitimate re-login. Drop the token so it isn't retried on every
-      // launch from here on.
-      console.log('[auth] stored session could not be refreshed, clearing')
+      if (error && isRetryable(error)) throw error
+      cachedUser = userFrom(currentSession) ?? cachedUser
       clearSession()
+      currentSession = null
+      currentEntitlement = null
+      expired = true
+      offline = false
+      stopSessionRefresh()
+      onAuthStateChange?.(getAuthState())
+      return
+    }
+    onAuthStateChange?.(await adoptSession(data.session))
+  } catch (error) {
+    offline = true
+    onAuthStateChange?.(getAuthState())
+    console.error('[auth] scheduled refresh failed; preserving session:', error)
+    stopSessionRefresh()
+    refreshTimer = setTimeout(() => void runScheduledRefresh(), NETWORK_RETRY_DELAY_MS)
+    refreshTimer.unref?.()
+  }
+}
+
+export async function openAuthDestination(
+  destination: AuthDestination
+): Promise<{ ok: boolean; error?: string }> {
+  const url = safeHttpsUrl(AUTH_URLS[destination])
+  if (!url) return { ok: false, error: `The ${destination} website page is not configured yet.` }
+  try {
+    await shell.openExternal(url)
+    return { ok: true }
+  } catch (error) {
+    return { ok: false, error: (error as Error).message }
+  }
+}
+
+async function beginBrowserAuth(
+  destination: 'signIn' | 'createAccount'
+): Promise<{ ok: boolean; state: AuthState; error?: string }> {
+  const baseUrl = safeHttpsUrl(AUTH_URLS[destination])
+  if (!baseUrl || !REDEEM_URL) {
+    return {
+      ok: false,
+      state: getAuthState(),
+      error: `The ${destination} website page is not configured yet.`
+    }
+  }
+  const flow = beginFlow(baseUrl, destination === 'createAccount' ? 'signup' : 'signin')
+  expired = false
+  onAuthStateChange?.(getAuthState())
+  try {
+    await shell.openExternal(flow.url)
+    return { ok: true, state: getAuthState() }
+  } catch (error) {
+    clearFlow()
+    onAuthStateChange?.(getAuthState())
+    return { ok: false, state: getAuthState(), error: (error as Error).message }
+  }
+}
+
+export function signInInBrowser(): Promise<{ ok: boolean; state: AuthState; error?: string }> {
+  return beginBrowserAuth('signIn')
+}
+
+export function createAccountInBrowser(): Promise<{
+  ok: boolean
+  state: AuthState
+  error?: string
+}> {
+  return beginBrowserAuth('createAccount')
+}
+
+export async function reopenAuthBrowser(): Promise<{ ok: boolean; error?: string }> {
+  const flow = getPendingFlow()
+  if (!flow) return { ok: false, error: 'There is no browser sign-in to reopen.' }
+  try {
+    await shell.openExternal(flow.url)
+    return { ok: true }
+  } catch (error) {
+    return { ok: false, error: (error as Error).message }
+  }
+}
+
+export function cancelBrowserAuth(): AuthState {
+  clearFlow()
+  onAuthStateChange?.(getAuthState())
+  return getAuthState()
+}
+
+// `ignored` means the link was not a valid answer to a pending sign-in: the
+// app state is untouched and the user is told nothing, so a stray or forged
+// link cannot be used to probe or disrupt anything.
+export type CallbackResult =
+  | { ok: true; state: AuthState }
+  | { ok: false; ignored: true }
+  | { ok: false; ignored: false; error: string }
+
+export const HANDOFF_FAILURE_MESSAGE = 'Sign-in link expired or invalid. Please try again.'
+
+export async function completeHandoffCallback(rawUrl: string): Promise<CallbackResult> {
+  // Not-ours links and links with no matching pending flow short-circuit
+  // inside runHandoff before anything is redeemed.
+  if (!REDEEM_URL || !isConfigured()) return { ok: false, ignored: true }
+
+  confirmingPurchase = true
+  onAuthStateChange?.(getAuthState())
+  try {
+    const outcome = await runHandoff(rawUrl, {
+      redeemUrl: REDEEM_URL,
+      setSession: async (tokens) => {
+        const { data, error } = await getClient().auth.setSession(tokens)
+        return error || !data.session ? null : data.session
+      },
+      adopt: async (session) => {
+        await adoptSession(session as Session)
+      }
+    })
+    if (outcome === 'invalid') {
+      // No values: the link may carry a key, token or code.
+      console.warn('[auth] ignored a malformed sign-in link')
+    }
+    if (outcome === 'ok') return { ok: true, state: getAuthState() }
+    if (outcome === 'failed') return { ok: false, ignored: false, error: HANDOFF_FAILURE_MESSAGE }
+    return { ok: false, ignored: true }
+  } finally {
+    confirmingPurchase = false
+    onAuthStateChange?.(getAuthState())
+  }
+}
+
+async function restoreWithToken(refreshToken: string): Promise<AuthState> {
+  try {
+    const { data, error } = await getClient().auth.refreshSession({ refresh_token: refreshToken })
+    if (error || !data.session) {
+      if (error && isRetryable(error)) throw error
+      clearSession()
+      currentSession = null
+      currentEntitlement = null
+      expired = true
+      offline = false
       return getAuthState()
     }
-    return await adoptSession(data.session)
-  } catch (err) {
-    // A thrown error here is a network failure, NOT a rejected token: keep
-    // the stored token so launching without internet doesn't cost the DJ
-    // their session.
-    console.error('[auth] session restore failed (keeping stored token):', err)
+    return adoptSession(data.session)
+  } catch (error) {
+    offline = true
+    console.error('[auth] session restore failed; keeping encrypted session:', error)
     return getAuthState()
   }
+}
+
+export function restoreSession(): Promise<AuthState> {
+  if (refreshInFlight) return refreshInFlight
+  if (restoreInFlight) return restoreInFlight
+  restoreInFlight = (async (): Promise<AuthState> => {
+    if (!isConfigured()) return getAuthState()
+    const stored = loadSession()
+    if (!stored) return getAuthState()
+    cachedUser = cachedUserFromStoredSession()
+    return restoreWithToken(stored.refresh_token)
+  })().finally(() => {
+    restoreInFlight = null
+  })
+  return restoreInFlight
 }
 
 export async function signOut(): Promise<AuthState> {
   try {
     if (isConfigured()) await getClient().auth.signOut()
-  } catch (err) {
-    // A failed server-side sign-out must not leave the app stuck logged in:
-    // clearing local state below is what the DJ actually asked for.
-    console.error('[auth] remote sign-out failed:', err)
+  } catch (error) {
+    console.error('[auth] remote sign-out failed; clearing local session:', error)
   }
   stopSessionRefresh()
   clearSession()
   currentSession = null
   currentEntitlement = null
+  cachedUser = null
+  offline = false
+  expired = false
+  clearFlow()
   return getAuthState()
+}
+
+// Reuse one in-flight refresh across focus events and the Settings button so
+// Supabase's rotating refresh token is never submitted concurrently.
+export function refreshAccountState(): Promise<AuthState> {
+  if (restoreInFlight) return restoreInFlight
+  if (refreshInFlight) return refreshInFlight
+  if (!currentSession?.refresh_token) return restoreSession()
+  refreshInFlight = (async (): Promise<AuthState> => {
+    const currentToken = currentSession!.refresh_token
+    try {
+      const { data, error } = await getClient().auth.refreshSession({ refresh_token: currentToken })
+      if (error || !data.session) {
+        if (error && isRetryable(error)) throw error
+        cachedUser = userFrom(currentSession) ?? cachedUser
+        clearSession()
+        currentSession = null
+        currentEntitlement = null
+        expired = true
+        offline = false
+        stopSessionRefresh()
+        const state = getAuthState()
+        onAuthStateChange?.(state)
+        return state
+      }
+      const state = await adoptSession(data.session)
+      onAuthStateChange?.(state)
+      return state
+    } catch (error) {
+      offline = true
+      const state = getAuthState()
+      onAuthStateChange?.(state)
+      console.error('[auth] focus refresh failed; preserving session:', error)
+      return state
+    }
+  })().finally(() => {
+    refreshInFlight = null
+  })
+  return refreshInFlight
 }

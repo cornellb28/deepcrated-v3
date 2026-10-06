@@ -55,18 +55,19 @@ declare global {
 
       auth: {
         state: () => Promise<AuthState>
-        signIn: (email: string, password: string) => Promise<AuthActionResult>
-        signUp: (email: string, password: string) => Promise<SignUpResult>
-        resendConfirmation: (email: string) => Promise<{ ok: boolean; error?: string }>
-        updatePassword: (password: string) => Promise<AuthActionResult>
+        signIn: () => Promise<{ ok: boolean; state: AuthState; error?: string }>
+        createAccount: () => Promise<{ ok: boolean; state: AuthState; error?: string }>
+        cancelSignIn: () => Promise<{ ok: boolean; state: AuthState }>
+        reopenBrowser: () => Promise<{ ok: boolean; error?: string }>
+        openDestination: (
+          destination: 'signIn' | 'createAccount' | 'passwordReset' | 'account' | 'portal'
+        ) => Promise<{ ok: boolean; error?: string }>
         signOut: () => Promise<{ ok: boolean; state: AuthState }>
-        resetPassword: (email: string) => Promise<{ ok: boolean; error?: string }>
-        google: () => Promise<{ ok: boolean; error?: string }>
-        refreshEntitlement: () => Promise<{ ok: boolean; entitlement: Entitlement | null }>
+        refresh: () => Promise<{ ok: boolean; state: AuthState; error?: string }>
       }
 
       onAuthChanged: (
-        cb: (state: AuthState & { error?: string; recovery?: boolean }) => void
+        cb: (state: AuthState & { error?: string; justSignedIn?: boolean }) => void
       ) => void
       offAuthChanged: () => void
 
@@ -340,6 +341,12 @@ declare global {
           tracks?: number
           error?: string
         }>
+        moveFolderTracksToParent: (folderId: number) => Promise<{
+          ok: boolean
+          jobId?: string
+          trackIds?: number[]
+          error?: string
+        }>
         renameFolder: (
           folderId: number,
           newName: string
@@ -565,7 +572,8 @@ declare global {
   interface AuthUser {
     id: string
     email: string | null
-    // 'email' or 'google' — shown on the Account page, never used to gate.
+    displayName: string | null
+    avatarUrl: string | null
     provider: string | null
     created_at: string | null
   }
@@ -574,21 +582,16 @@ declare global {
     // False when MAIN_VITE_SUPABASE_* are absent — the login view shows
     // setup instructions instead of a form it knows will fail.
     configured: boolean
+    status: 'signedOut' | 'awaitingBrowser' | 'signedIn' | 'expired'
     user: AuthUser | null
     entitlement: Entitlement | null
     // False when safeStorage is unavailable (typically a Linux box with no
     // keyring): this session will not survive a quit.
     persistent: boolean
+    offline: boolean
+    confirmingPurchase: boolean
+    links: Record<'signIn' | 'createAccount' | 'passwordReset' | 'account' | 'portal', boolean>
   }
-
-  type AuthActionResult = { ok: true; state: AuthState } | { ok: false; error: string }
-
-  // Signup has three outcomes, not two: the middle one is "account created,
-  // now go confirm your email", which is neither a session nor a failure.
-  type SignUpResult =
-    | { ok: true; needsConfirmation: false; state: AuthState }
-    | { ok: true; needsConfirmation: true; email: string }
-    | { ok: false; error: string }
 
   interface ImportProgressPayload {
     jobId: string

@@ -30,8 +30,6 @@ export function Breadcrumb({ activeView, onNavigate }: BreadcrumbProps): React.J
       alignItems: 'center',
       gap: '6px',
       padding: '6px 16px',
-      background: '#0e0e12',
-      borderBottom: '0.5px solid #1e1e2a',
       flexShrink: 0,
     }}>
       {segments.map((segment, i) => {

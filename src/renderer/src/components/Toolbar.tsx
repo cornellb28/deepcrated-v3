@@ -62,7 +62,10 @@ export function Toolbar({ onImportFolder, activeView, onImportFiles }: ToolbarPr
             />
             {searchQuery && (
               <button
+                type="button"
                 onClick={() => setSearchQuery('')}
+                title="Clear search"
+                aria-label="Clear search"
                 style={{
                   position: 'absolute',
                   right: '6px',

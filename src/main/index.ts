@@ -11,16 +11,16 @@ import { isUnchanged, normalizeMtime, withTrailingSep } from './rescan'
 import {
   CALLBACK_PROTOCOL,
   getAuthState,
-  signIn,
-  signUp,
   signOut,
-  requestPasswordReset,
-  startGoogleSignIn,
-  completeOAuthCallback,
+  signInInBrowser,
+  createAccountInBrowser,
+  cancelBrowserAuth,
+  reopenAuthBrowser,
+  openAuthDestination,
+  completeHandoffCallback,
   restoreSession,
-  refreshEntitlement,
-  resendConfirmation,
-  updatePassword,
+  refreshAccountState,
+  type AuthDestination,
   setAuthStateListener,
   stopSessionRefresh
 } from './auth'
@@ -1693,6 +1693,9 @@ function createWindow(): void {
     }
   })
   mainWindow = win
+  win.on('focus', () => {
+    void refreshAccountState()
+  })
 
   win.on('ready-to-show', () => {
     win.show()
@@ -1760,21 +1763,22 @@ if (process.defaultApp) {
   app.setAsDefaultProtocolClient(CALLBACK_PROTOCOL)
 }
 
-// Completes the exchange and tells the renderer, which is waiting on a
-// spinner after having opened the browser. Both outcomes are pushed: a
-// cancelled consent screen must clear that spinner too.
+// Redeems the one-time key and tells the renderer, which is waiting on a
+// spinner after having opened the browser. A link that is not a valid answer
+// to a pending sign-in is ignored entirely: no focus, no toast, no state
+// change. A failed redeem pushes the generic failure so the spinner clears.
 async function handleAuthCallback(url: string): Promise<void> {
-  const result = await completeOAuthCallback(url)
+  const result = await completeHandoffCallback(url)
+  if (!result.ok && result.ignored) return
   if (mainWindow) {
     if (mainWindow.isMinimized()) mainWindow.restore()
     mainWindow.focus()
-    // A recovery link is flagged so the renderer opens the set-a-new-password
-    // screen. Without it the DJ lands back in the app signed in with the
-    // password they just said they had forgotten, and never gets asked.
+    // The key was redeemed in main; only this derived state and a success
+    // marker are delivered to the renderer. Tokens never cross this boundary.
     mainWindow.webContents.send(
       'auth:changed',
       result.ok
-        ? { ...result.state, recovery: result.recovery }
+        ? { ...result.state, justSignedIn: true }
         : { ...getAuthState(), error: result.error }
     )
   }
@@ -1960,19 +1964,16 @@ app.whenReady().then(() => {
   // out of sync with main. Tokens are never in it — see AuthState.
   ipcMain.handle('auth:state', () => getAuthState())
 
-  ipcMain.handle('auth:sign-in', async (_e, email: string, password: string) => {
-    const result = await signIn(email, password)
-    return result.ok ? { ok: true, state: result.state } : { ok: false, error: result.error }
+  ipcMain.handle('auth:sign-in', () => signInInBrowser())
+  ipcMain.handle('auth:create-account', () => createAccountInBrowser())
+  ipcMain.handle('auth:cancel-sign-in', () => ({ ok: true, state: cancelBrowserAuth() }))
+  ipcMain.handle('auth:reopen-browser', () => reopenAuthBrowser())
+  ipcMain.handle('auth:open-destination', (_e, destination: AuthDestination) => {
+    if (!['signIn', 'createAccount', 'passwordReset', 'account', 'portal'].includes(destination)) {
+      return { ok: false, error: 'Unknown account website destination.' }
+    }
+    return openAuthDestination(destination)
   })
-
-  // Passed through as-is: signup has three outcomes, not two, and flattening
-  // "account created, confirm your email" into either success or failure is
-  // what the old shape got wrong.
-  ipcMain.handle('auth:sign-up', async (_e, email: string, password: string) =>
-    signUp(email, password)
-  )
-
-  ipcMain.handle('auth:resend-confirmation', async (_e, email: string) => resendConfirmation(email))
 
   // Scheme-guarded on purpose. The renderer is ours, but "open whatever URL
   // you are handed" is a capability worth narrowing regardless — file:// and
@@ -1991,28 +1992,8 @@ app.whenReady().then(() => {
     }
   })
 
-  ipcMain.handle('auth:update-password', async (_e, password: string) => {
-    const result = await updatePassword(password)
-    return result.ok ? { ok: true, state: result.state } : { ok: false, error: result.error }
-  })
-
   ipcMain.handle('auth:sign-out', async () => ({ ok: true, state: await signOut() }))
-
-  ipcMain.handle('auth:reset-password', async (_e, email: string) => {
-    const result = await requestPasswordReset(email)
-    return result.ok ? { ok: true } : { ok: false, error: result.error }
-  })
-
-  // Resolves as soon as the browser has been opened, NOT when sign-in
-  // finishes — the session arrives later on the cratecloud:// callback and
-  // is pushed over 'auth:changed'. The renderer shows a "waiting for
-  // browser" state in between.
-  ipcMain.handle('auth:google', async () => startGoogleSignIn())
-
-  ipcMain.handle('auth:refresh-entitlement', async () => ({
-    ok: true,
-    entitlement: await refreshEntitlement()
-  }))
+  ipcMain.handle('auth:refresh', async () => ({ ok: true, state: await refreshAccountState() }))
 
   // Rescan every registered root, one after another. Sequential on purpose:
   // each root's scan already saturates the disk and the sidecar pool, and
@@ -2729,49 +2710,64 @@ app.whenReady().then(() => {
   //
   // shell.trashItem, never rm -rf: this is the same call db:delete-track
   // already uses, and a mis-clicked folder is a DJ's music.
+  ipcMain.handle('fs:move-folder-tracks-to-parent', (event, folderId: number) => {
+    try {
+      const folder = getFolderTree().find((f) => f.id === folderId)
+      if (!folder?.path) return { ok: false, error: 'Folder not found or has no disk path' }
+      const tracks = getTracksByFolder(folderId, true)
+      if (tracks.length === 0) return { ok: false, error: 'This folder has no tracks to move' }
+      const trackIds = tracks.map((track) => track.id)
+      const jobId = startMoveJob(event, trackIds, dirname(folder.path))
+      return { ok: true, jobId, trackIds }
+    } catch (err) {
+      return { ok: false, error: (err as Error).message }
+    }
+  })
+
   ipcMain.handle(
     'fs:delete-folder',
     async (_e, folderId: number, mode: 'library' | 'trash') => {
+      let stoppedRoot: ReturnType<typeof getAllRoots>[number] | undefined
+      let pathTrashed = false
       try {
         const folder = getFolderTree().find((f) => f.id === folderId)
         if (!folder) return { ok: false, error: 'Folder not found' }
+        const isRoot = folder.parent_folder_id == null
+        const root = isRoot ? getAllRoots().find((r) => r.id === folder.root_folder_id) : undefined
+        if (isRoot && !root) return { ok: false, error: 'Watched folder registration not found' }
+        if (mode === 'trash' && !folder.path) return { ok: false, error: 'Folder has no path on disk' }
 
-        // A library root is removed by un-registering it, not by deleting a
-        // folder row — doing it here would strand every track under a root
-        // the app still thinks it is watching.
-        if (folder.parent_folder_id == null) {
-          return {
-            ok: false,
-            error: 'This is a library folder. Remove it from Settings > Library instead.'
-          }
+        if (isRoot && root) {
+          await stopWatcher(root.id)
+          stoppedRoot = root
         }
 
         if (mode === 'trash') {
-          if (!folder.path) return { ok: false, error: 'Folder has no path on disk' }
           try {
-            await shell.trashItem(folder.path)
+            await shell.trashItem(folder.path!)
+            pathTrashed = true
           } catch (err) {
             // Already gone is a success for our purposes — the rows still
             // need clearing, which is what the caller actually wanted.
             const code = (err as NodeJS.ErrnoException).code
-            if (code !== 'ENOENT') {
-              // Logged as well as returned: trashItem's failures are
-              // environmental (a volume with no Trash, a permission the app
-              // was never granted) and the message is the only thing that
-              // says which. Losing it to a dismissed toast makes this
-              // look like the button simply does nothing.
+            if (code === 'ENOENT') {
+              pathTrashed = true
+            } else {
               console.error('[folders] trashItem failed for', folder.path, err)
-              return {
-                ok: false,
-                error: `Could not move to Trash: ${(err as Error).message}`
-              }
+              if (stoppedRoot) startWatcher(stoppedRoot.id, stoppedRoot.path)
+              stoppedRoot = undefined
+              return { ok: false, error: `Could not move to Trash: ${(err as Error).message}` }
             }
           }
         }
 
         const removed = deleteFolderCascade(folderId, { deleteTracks: mode === 'trash' })
+        if (isRoot && root) removeRoot(root.id)
         return { ok: true, ...removed }
       } catch (err) {
+        // Restart only if the filesystem operation did not already move the
+        // watched directory to Trash.
+        if (stoppedRoot && !pathTrashed) startWatcher(stoppedRoot.id, stoppedRoot.path)
         return { ok: false, error: (err as Error).message }
       }
     }

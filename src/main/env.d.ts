@@ -6,6 +6,15 @@
 interface ImportMetaEnv {
   readonly MAIN_VITE_SUPABASE_URL?: string
   readonly MAIN_VITE_SUPABASE_ANON_KEY?: string
+  // Website destinations stay unset until the production website routes are
+  // confirmed; renderer menu entries are hidden while their URL is blank.
+  readonly MAIN_VITE_AUTH_URL?: string
+  // POST endpoint that trades { key, verifier } for a session. Browser
+  // sign-in stays hidden while this or MAIN_VITE_AUTH_URL is blank.
+  readonly MAIN_VITE_DESKTOP_REDEEM_URL?: string
+  readonly MAIN_VITE_AUTH_PASSWORD_RESET_URL?: string
+  readonly MAIN_VITE_ACCOUNT_MANAGEMENT_URL?: string
+  readonly MAIN_VITE_CUSTOMER_PORTAL_URL?: string
 }
 
 interface ImportMeta {

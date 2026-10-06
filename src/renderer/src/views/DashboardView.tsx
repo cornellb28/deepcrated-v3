@@ -1,7 +1,6 @@
 import React, { useState } from 'react'
 import { useLibraryStore } from '../store/useLibraryStore'
 import { Badge } from '@renderer/components/ui/badge'
-import { AccountButton } from '@renderer/components/AccountButton'
 import { useArtworkUrl } from '../hooks/useArtworkUrl'
 import { TrackRow } from '../components/TrackRow'
 import { BulkBar } from '../components/BulkBar'
@@ -56,6 +55,7 @@ const NEEDS: NeedsDef[] = [
 // mount 8,000 rows and jam the dashboard on a single click. The footer says
 // how many were left out.
 const PANEL_LIMIT = 100
+const GENRE_CARD_COLORS = ['#c13b6b', '#6250bd', '#147ca3', '#bd5e27', '#25825f']
 
 interface DashboardStats {
   total: number
@@ -113,11 +113,11 @@ function computeStats(tracks: Track[], trackTags: Map<number, Tag[]>): Dashboard
   })
   const topGenres = Array.from(genreCounts.values())
     .sort((a, b) => b.count - a.count || a.tag.value.localeCompare(b.tag.value))
-    .slice(0, 8)
+    .slice(0, 5)
 
   // Tracks carrying a genre string but no genre tag — i.e. not yet migrated
-  // onto the tags model. Counted so the panel can say the distribution is
-  // incomplete rather than quietly under-reporting.
+  // onto the tags model. Counted so the genre cards can disclose that they
+  // do not include these tracks.
   const genreUntagged = tracks.filter((t) => {
     if (!t.genre) return false
     return !(trackTags.get(t.id) ?? []).some((tag) => tag.field === 'genre')
@@ -142,18 +142,12 @@ function computeStats(tracks: Track[], trackTags: Map<number, Tag[]>): Dashboard
 }
 
 interface DashboardViewProps {
-  // Null until main has finished restoring any stored session. The header
-  // control renders nothing during that moment rather than flashing a
-  // "Sign in" button at someone who is already signed in.
-  auth: AuthState | null
-  // Opens Settings > Account, the one place sign-in lives.
-  onOpenAccount: () => void
   // Switches to All Tracks. A callback rather than a store write because
   // App owns activeView, including persisting it — see setActiveView.
   onOpenLibrary: () => void
 }
 
-export function DashboardView({ auth, onOpenAccount, onOpenLibrary }: DashboardViewProps): React.JSX.Element {
+export function DashboardView({ onOpenLibrary }: DashboardViewProps): React.JSX.Element {
   const { tracks, trackTags, setPendingTagNav } = useLibraryStore()
   const stats = computeStats(tracks, trackTags)
 
@@ -204,13 +198,10 @@ export function DashboardView({ auth, onOpenAccount, onOpenLibrary }: DashboardV
       margin: '0 auto',
     }}>
 
-      {/* Title left, account right — the same shape as the Settings
-          header, so switching between the two views doesn't shift the
-          furniture. */}
+      {/* Dashboard title */}
       <div style={{
         display: 'flex',
         alignItems: 'center',
-        justifyContent: 'space-between',
         gap: '16px',
         marginBottom: '24px',
       }}>
@@ -223,7 +214,6 @@ export function DashboardView({ auth, onOpenAccount, onOpenLibrary }: DashboardV
           Library Overview
         </h1>
 
-        <AccountButton auth={auth} onOpenAccount={onOpenAccount} />
       </div>
 
       {/* ── Row 1 — Overview metrics ──────────────── */}
@@ -291,6 +281,110 @@ export function DashboardView({ auth, onOpenAccount, onOpenLibrary }: DashboardV
           </div>
         ))}
       </div>
+
+      {/* ── Browse by genre ─────────────────────── */}
+      <SectionTitle>Browse by genre</SectionTitle>
+      {stats.topGenres.length === 0 ? (
+        <div style={{
+          background: '#13131b',
+          border: '0.5px solid #1e1e2a',
+          borderRadius: '10px',
+          padding: '16px',
+          marginBottom: '24px',
+          fontSize: '12px',
+          color: '#555',
+        }}>
+          No genres tagged yet
+        </div>
+      ) : (
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(5, minmax(0, 1fr))',
+          gap: '10px',
+          marginBottom: '24px',
+        }}>
+          {stats.topGenres.map(({ tag, count }, index) => (
+            <button
+              key={tag.id}
+              type="button"
+              onClick={() => setPendingTagNav(tag)}
+              aria-label={`Browse ${count} tracks tagged ${tag.value}`}
+              title={`Show all ${count} tracks tagged "${tag.value}"`}
+              style={{
+                position: 'relative',
+                isolation: 'isolate',
+                overflow: 'hidden',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between',
+                alignItems: 'flex-start',
+                height: '112px',
+                minWidth: 0,
+                padding: '14px',
+                border: 'none',
+                borderRadius: '10px',
+                background: GENRE_CARD_COLORS[index % GENRE_CARD_COLORS.length],
+                color: '#fff',
+                textAlign: 'left',
+                fontFamily: 'inherit',
+                cursor: 'pointer',
+                boxShadow: 'inset 0 0 0 1px #ffffff12',
+                transition: 'transform 0.15s ease, filter 0.15s ease',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.transform = 'translateY(-2px)'
+                e.currentTarget.style.filter = 'brightness(1.12)'
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.transform = 'none'
+                e.currentTarget.style.filter = 'none'
+              }}
+            >
+              <span aria-hidden style={{
+                position: 'absolute',
+                zIndex: 0,
+                width: '92px',
+                height: '92px',
+                right: '-18px',
+                top: '22px',
+                borderRadius: '50%',
+                background: 'linear-gradient(145deg, #ffffff38, #ffffff08)',
+                transform: 'rotate(-24deg)',
+              }} />
+              <span style={{
+                position: 'relative',
+                zIndex: 1,
+                fontSize: '15px',
+                fontWeight: 600,
+                lineHeight: 1.15,
+                overflow: 'hidden',
+                display: '-webkit-box',
+                WebkitBoxOrient: 'vertical',
+                WebkitLineClamp: 2,
+                overflowWrap: 'anywhere',
+              }}>
+                {tag.value}
+              </span>
+              <span style={{ position: 'relative', zIndex: 1, fontSize: '10px', color: '#ffffffbf' }}>
+                {count.toLocaleString()} {count === 1 ? 'track' : 'tracks'}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+      {stats.genreUntagged > 0 && (
+        <div
+          style={{
+            fontSize: '10px',
+            color: '#5a5a70',
+            marginTop: '-16px',
+            marginBottom: '24px',
+            lineHeight: 1.5
+          }}
+        >
+          {stats.genreUntagged} track{stats.genreUntagged === 1 ? '' : 's'} carry a genre that is not a tag yet, so {stats.genreUntagged === 1 ? 'it is' : 'they are'} not included above.
+        </div>
+      )}
 
       {/* ── Row 2 — Needs attention ───────────────── */}
       <SectionTitle>Needs attention</SectionTitle>
@@ -486,10 +580,10 @@ export function DashboardView({ auth, onOpenAccount, onOpenLibrary }: DashboardV
         </div>
       )}
 
-      {/* ── Row 3 — Tags + Genres ────────────────── */}
+      {/* ── Row 3 — Tags ─────────────────────────── */}
       <div style={{
         display: 'grid',
-        gridTemplateColumns: '1fr 1fr',
+        gridTemplateColumns: '1fr',
         gap: '16px',
         marginBottom: '24px',
       }}>
@@ -528,104 +622,6 @@ export function DashboardView({ auth, onOpenAccount, onOpenLibrary }: DashboardV
               ))}
             </div>
           )}
-        </div>
-
-        {/* Genre distribution */}
-        <div style={{
-          background: '#13131b',
-          border: '0.5px solid #1e1e2a',
-          borderRadius: '10px',
-          padding: '16px',
-        }}>
-          <div style={{
-            fontSize: '11px',
-            fontWeight: 500,
-            letterSpacing: '0.6px',
-            textTransform: 'uppercase',
-            color: '#444',
-            marginBottom: '12px',
-          }}>
-            Genre distribution
-          </div>
-          {stats.topGenres.length === 0 ? (
-            <div style={{ fontSize: '12px', color: '#333' }}>
-              No genres tagged yet
-            </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              {stats.topGenres.map(({ tag, count }) => {
-                const pct = Math.round((count / stats.total) * 100)
-                return (
-                  <button
-                    key={tag.id}
-                    type="button"
-                    onClick={() => setPendingTagNav(tag)}
-                    title={`Show the ${count} track${count === 1 ? '' : 's'} tagged "${tag.value}"`}
-                    style={{
-                      display: 'block',
-                      width: '100%',
-                      textAlign: 'left',
-                      background: 'none',
-                      border: 'none',
-                      padding: '2px 4px',
-                      margin: '0 -4px',
-                      borderRadius: '4px',
-                      cursor: 'pointer',
-                      fontFamily: 'inherit',
-                      transition: 'background 0.12s ease'
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.background = '#1a1a26'
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background = 'none'
-                    }}
-                  >
-                    <span style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      marginBottom: '3px',
-                    }}>
-                      <span style={{ fontSize: '11px', color: '#c0c0d8' }}>
-                        {tag.value}
-                      </span>
-                      <span style={{ fontSize: '11px', color: '#444' }}>
-                        {count}
-                      </span>
-                    </span>
-                    <span style={{
-                      display: 'block',
-                      background: '#1e1e2a',
-                      borderRadius: '2px',
-                      height: '3px',
-                      overflow: 'hidden',
-                    }}>
-                      <span style={{
-                        display: 'block',
-                        width: `${pct}%`,
-                        height: '100%',
-                        background: tag.color || '#7f77dd',
-                        borderRadius: '2px',
-                        transition: 'width 0.3s ease',
-                      }} />
-                    </span>
-                  </button>
-                )
-              })}
-            </div>
-          )}
-
-          {/* The distribution is drawn from tags, so a track whose genre is
-              still only a column string is not in it. Saying so beats a chart
-              that quietly under-counts. */}
-          {stats.genreUntagged > 0 && (
-            <div style={{ fontSize: '10px', color: '#5a5a70', marginTop: '10px', lineHeight: 1.5 }}>
-              {stats.genreUntagged} track{stats.genreUntagged === 1 ? '' : 's'} carry a genre that
-              is not a tag yet, so {stats.genreUntagged === 1 ? 'it is' : 'they are'} not counted
-              here.
-            </div>
-          )}
-
         </div>
       </div>
 

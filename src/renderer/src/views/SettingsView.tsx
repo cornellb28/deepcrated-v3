@@ -1,13 +1,14 @@
 import React, { useEffect, useState } from 'react'
 import { toast } from 'sonner'
-import { AuthPanel } from '@renderer/components/AuthPanel'
 import { AccountProfile } from '@renderer/components/AccountProfile'
+import { AccountChip } from '@renderer/components/AccountChip'
 import { Button } from '@renderer/components/ui/button'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@renderer/components/ui/tabs'
 import { ReconciliationModal } from '@renderer/components/ReconciliationModal'
 import { SeratoImportConfirmDialog } from '@renderer/components/SeratoImportConfirmDialog'
 import { useLibraryStore } from '../store/useLibraryStore'
 import { FilenameTemplateEditor } from '../components/FilenameTemplateEditor'
+import { describePlan } from '../lib/plan'
 
 // Settings as a full page rather than a modal. A modal was wrong for this:
 // it capped the content at 440px with everything stacked in one scroll, and
@@ -36,15 +37,16 @@ const SERATO_OVERWRITE_KEY = 'serato_overwrite_existing'
 // whichever tab was open last.
 export const SETTINGS_TAB_KEY = 'settings_tab'
 
-type TabId = 'account' | 'library' | 'serato'
+type TabId = 'account' | 'plan' | 'library' | 'serato'
 const TABS: { id: TabId; label: string }[] = [
   { id: 'account', label: 'Account' },
+  { id: 'plan', label: 'Plan' },
   { id: 'library', label: 'Library' },
   { id: 'serato', label: 'Serato' }
 ]
 
 function isTabId(value: string | null): value is TabId {
-  return value === 'account' || value === 'library' || value === 'serato'
+  return value === 'account' || value === 'plan' || value === 'library' || value === 'serato'
 }
 
 const UPGRADE_URL = import.meta.env.RENDERER_VITE_UPGRADE_URL
@@ -147,6 +149,7 @@ function UpgradeSection({
 }: {
   entitlement: Entitlement | null
 }): React.JSX.Element | null {
+  if (!entitlement) return null
   // Any paid tier hides the pitch — deliberately not a list of paid plan
   // names, which would need editing every time the lineup changes.
   if (entitlement && entitlement.plan !== 'free') return null
@@ -190,6 +193,7 @@ export function SettingsView({
   const [rescanning, setRescanning] = useState(false)
   const analysisProgress = useLibraryStore((s) => s.analysisProgress)
   const [signingOut, setSigningOut] = useState(false)
+  const [refreshingPlan, setRefreshingPlan] = useState(false)
   const [reconcileOpen, setReconcileOpen] = useState(false)
   const [seratoImportPrompt, setSeratoImportPrompt] = useState<{
     folderPath: string
@@ -270,6 +274,21 @@ export function SettingsView({
       onAuthChanged(result.state)
     } finally {
       setSigningOut(false)
+    }
+  }
+
+  async function handleRefreshPlan(): Promise<void> {
+    setRefreshingPlan(true)
+    try {
+      const result = await window.api.auth.refresh()
+      if (!result.ok) {
+        toast.error('Could not refresh account state', { description: result.error ?? 'Try again when online.' })
+        return
+      }
+      onAuthChanged(result.state)
+      toast.success(result.state.offline ? 'Still offline' : 'Account and plan refreshed')
+    } finally {
+      setRefreshingPlan(false)
     }
   }
 
@@ -369,41 +388,69 @@ export function SettingsView({
         <div style={{ paddingTop: SPACE.afterHeader, maxWidth: MEASURE }}>
           {/* ── Account ─────────────────────────────────────────────── */}
           <TabsContent value="account">
-            {auth === null || auth.user === null ? (
-              <Section
-                title="Account"
-                description="CrateCloud is free and works without an account. Sign in only if you want Cloud Sync across your machines."
-                last
-              >
-                <div style={{ maxWidth: '320px' }}>
-                  <AuthPanel
-                    configured={auth?.configured ?? false}
-                    persistent={auth?.persistent ?? false}
-                    onSignedIn={onAuthChanged}
-                  />
-                </div>
-              </Section>
-            ) : (
-              <>
-                <Section
-                  title="Profile"
-                  description="Your account and the tier it is on. Shown for transparency — nothing in the desktop app is locked behind it."
-                >
+            <Section
+              title="Account"
+              description="Sign-in is optional. The desktop library remains fully available without an account."
+              last
+            >
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', alignItems: 'flex-start' }}>
+                <AccountChip auth={auth} onAuthChanged={onAuthChanged} showExpiredPrompt />
+                {!auth?.configured && (
+                  <div style={{ fontSize: '11px', color: '#ba7517', lineHeight: 1.5 }}>
+                    Supabase is not configured. Fill in the MAIN_VITE_SUPABASE_URL and anon key settings to enable account sign-in.
+                  </div>
+                )}
+                {auth?.offline && (
+                  <div style={{ fontSize: '11px', color: '#ba7517' }}>
+                    Offline — your encrypted session is kept. Plan information is not cached.
+                  </div>
+                )}
+                {auth?.status === 'signedIn' && auth.user && (
                   <AccountProfile
                     user={auth.user}
                     entitlement={auth.entitlement}
-                    // Merged into the auth state the app already holds, so a
-                    // refresh here does not create a second, disagreeing copy
-                    // of the entitlement.
-                    onRefreshed={(entitlement) => onAuthChanged({ ...auth, entitlement })}
+                    onRefreshed={onAuthChanged}
                     onSignOut={() => void handleSignOut()}
                     signingOut={signingOut}
                   />
-                </Section>
+                )}
+              </div>
+            </Section>
+          </TabsContent>
 
-                <UpgradeSection entitlement={auth.entitlement} />
-              </>
-            )}
+          {/* ── Plan ────────────────────────────────────────────────── */}
+          <TabsContent value="plan">
+            <Section
+              title="Plan"
+              description="Your plan is read from your own account entitlement. No desktop features are gated by plan or sign-in status."
+            >
+              <Card>
+                <div>
+                  <div style={{ fontSize: '13px', color: '#e8e8f0' }}>
+                    {auth?.user && auth.entitlement
+                      ? describePlan(auth.entitlement).name
+                      : 'Plan unavailable'}
+                  </div>
+                  <div style={{ fontSize: '10px', color: '#555', marginTop: '3px' }}>
+                    {auth?.user && auth.entitlement
+                      ? auth.entitlement.status
+                      : auth?.user
+                        ? 'Sign in online to read plan'
+                        : 'Sign in to view your plan'}
+                  </div>
+                </div>
+                <Button onClick={() => void handleRefreshPlan()} disabled={refreshingPlan} variant="outline" size="sm">
+                  {refreshingPlan ? 'Refreshing…' : "I've signed in / paid, refresh"}
+                </Button>
+              </Card>
+              {!auth?.configured && (
+                <div style={{ fontSize: '10px', color: '#ba7517', marginTop: '8px' }}>
+                  TODO: Configure the Supabase project to read account entitlements.
+                </div>
+              )}
+              {/* TODO: Persist an entitlement cache only after its storage and offline trust policy are approved. */}
+              <UpgradeSection entitlement={auth?.entitlement ?? null} />
+            </Section>
           </TabsContent>
 
           {/* ── Library ─────────────────────────────────────────────── */}

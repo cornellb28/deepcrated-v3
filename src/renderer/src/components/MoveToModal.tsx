@@ -790,6 +790,7 @@ function Row({
         }}
         tabIndex={-1}
         aria-label={expandable ? (expanded ? 'Collapse' : 'Expand') : undefined}
+        title={expandable ? (expanded ? `Collapse ${label}` : `Expand ${label}`) : undefined}
         style={{
           width: '14px',
           height: '14px',

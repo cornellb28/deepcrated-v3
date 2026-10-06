@@ -20,6 +20,7 @@ interface DeleteFolderDialogProps {
   folderName: string
   trackCount: number
   subfolderCount: number
+  isWatchedFolder?: boolean
   busy?: boolean
   // Shown in the dialog, not only as a toast. shell.trashItem fails for
   // environmental reasons — a volume with no Trash, a permission the app was
@@ -35,6 +36,7 @@ export function DeleteFolderDialog({
   folderName,
   trackCount,
   subfolderCount,
+  isWatchedFolder = false,
   busy = false,
   error = null,
   onChoose,
@@ -63,7 +65,7 @@ export function DeleteFolderDialog({
     ? `Holds ${tracks}${subfolderCount > 0 ? ` and ${subfolders}` : ''}. Choose what happens to them.`
     : subfolderCount > 0
       ? `No tracks in here, but it holds ${subfolders}.`
-      : 'This folder is empty.'
+      : 'No indexed tracks or subfolders are here. Confirm how you want to remove this folder.'
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onCancel()}>
@@ -81,7 +83,7 @@ export function DeleteFolderDialog({
         }}
       >
         <div style={{ fontSize: '14px', fontWeight: 500, marginBottom: '4px' }}>
-          Remove “{folderName}”
+          {isWatchedFolder ? 'Remove watched folder' : 'Remove folder'} “{folderName}”
         </div>
         <div style={{ fontSize: '12px', color: '#555', marginBottom: '16px', lineHeight: 1.5 }}>
           {summary}
@@ -97,12 +99,12 @@ export function DeleteFolderDialog({
             lines={
               hasTracks
                 ? [
-                    ['Folder', 'disappears from the Folders view'],
+                    ['Folder', isWatchedFolder ? 'is no longer watched or shown in Folders' : 'disappears from the Folders view'],
                     ['Tracks', 'stay in your library, with tags and crates — just unfiled'],
                     ['Files', 'untouched on your drive']
                   ]
                 : [
-                    ['Folder', 'disappears from the Folders view'],
+                    ['Folder', isWatchedFolder ? 'is no longer watched or shown in Folders' : 'disappears from the Folders view'],
                     ['Files', 'the directory stays on your drive']
                   ]
             }
@@ -114,11 +116,11 @@ export function DeleteFolderDialog({
               onSelect={() => setChoice('move')}
               icon={<FolderInput size={16} />}
               accent="#1d9e75"
-              title="Move the tracks somewhere else first"
+              title="Move tracks into the parent folder"
               lines={[
-                ['Folder', 'stays until the move finishes, then you can remove it'],
-                ['Tracks', 'keep everything, and re-file under the new folder'],
-                ['Files', 'relocated on your drive, not deleted']
+                ['Folder', 'and any subfolders stay in place for you to remove later'],
+                ['Tracks', 'keep their tags and crates; name conflicts are skipped'],
+                ['Files', 'move directly into the parent folder, not deleted']
               ]}
             />
           )}
@@ -133,12 +135,12 @@ export function DeleteFolderDialog({
             lines={
               hasTracks
                 ? [
-                    ['Folder', 'deleted from your drive'],
+                    ['Folder', isWatchedFolder ? 'is unregistered and deleted from your drive' : 'deleted from your drive'],
                     ['Tracks', `removed from CrateCloud — ${tracks}, with their tags`],
                     ['Files', 'go to the Trash, recoverable from Finder until you empty it']
                   ]
                 : [
-                    ['Folder', 'deleted from your drive'],
+                    ['Folder', isWatchedFolder ? 'is unregistered and deleted from your drive' : 'deleted from your drive'],
                     ['Files', 'goes to the Trash, recoverable from Finder until you empty it']
                   ]
             }
@@ -189,7 +191,7 @@ export function DeleteFolderDialog({
               : choice === 'trash'
                 ? 'Move to Trash'
                 : choice === 'move'
-                  ? 'Choose destination…'
+                  ? 'Move to parent'
                   : 'Remove'}
           </Button>
         </div>

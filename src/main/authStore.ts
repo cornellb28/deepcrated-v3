@@ -15,9 +15,14 @@ import { join } from 'path'
 
 interface StoredSession {
   refresh_token: string
+  user_id?: string
   // Informational only — shown in the UI before a refresh completes, never
   // trusted for authorization. The server decides who you are.
   email?: string
+  displayName?: string
+  avatarUrl?: string
+  provider?: string
+  created_at?: string
 }
 
 function sessionFile(): string {

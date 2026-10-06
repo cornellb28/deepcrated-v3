@@ -369,6 +369,7 @@ export function CratePickerModal({
                   }}
                   tabIndex={-1}
                   aria-label={hasChildren ? (isExpanded ? 'Collapse' : 'Expand') : undefined}
+                  title={hasChildren ? (isExpanded ? `Collapse ${node.name}` : `Expand ${node.name}`) : undefined}
                   style={{
                     width: '14px',
                     height: '14px',

@@ -57,6 +57,7 @@ export function Sidebar({
       <button
         onClick={() => onViewChange(view)}
         title={collapsed ? label : undefined}
+        aria-label={label}
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -155,6 +156,7 @@ export function Sidebar({
         <button
           onClick={onToggleCollapsed}
           title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           style={{
             background: 'none',
             border: 'none',
@@ -195,6 +197,7 @@ export function Sidebar({
       <button
         onClick={onOpenSettings}
         title={collapsed ? 'Settings' : undefined}
+        aria-label="Settings"
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -450,6 +453,8 @@ function CratesSection({
                     e.stopPropagation()
                     setOpenMenuId((id) => (id === node.id ? null : node.id))
                   }}
+                  title={`More options for ${node.name}`}
+                  aria-label={`More options for ${node.name}`}
                   style={{
                     background: 'none',
                     border: 'none',
@@ -489,6 +494,7 @@ function CratesSection({
       <button
         onClick={onOpen}
         title="Crates"
+        aria-label="Crates"
         style={{
           display: 'flex',
           justifyContent: 'center',
@@ -552,6 +558,7 @@ function CratesSection({
             onClick={() => void handleExportAllClick()}
             disabled={exportingAll || crates.length === 0}
             title="Export all crates to Serato"
+            aria-label="Export all crates to Serato"
             style={{
               background: 'none',
               border: 'none',
@@ -566,6 +573,7 @@ function CratesSection({
           <button
             onClick={() => setCreating(true)}
             title="New crate"
+            aria-label="New crate"
             style={{
               background: 'none',
               border: 'none',

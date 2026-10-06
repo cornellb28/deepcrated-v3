@@ -52,8 +52,28 @@ export function TrackRow({
   }
 
   function handleRowClick(): void {
-    setActiveTrack(isActive ? null : track.id)
-    if (!isActive && !isMissing) playTrack(track)
+    setActiveTrack(track.id)
+  }
+
+  function handlePlayTrack(): void {
+    if (isMissing || !track.filepath) return
+    if (isCurrentTrack) {
+      if (!isPlaying) togglePlayPause()
+    } else {
+      playTrack(track)
+    }
+  }
+
+  function handleRowDoubleClick(e: React.MouseEvent<HTMLDivElement>): void {
+    const target = e.target as HTMLElement
+    if (target.closest('button, input, [role="checkbox"]')) return
+    handlePlayTrack()
+  }
+
+  function handleRowKeyDown(e: React.KeyboardEvent<HTMLDivElement>): void {
+    if (e.key !== ' ' || e.target !== e.currentTarget) return
+    e.preventDefault()
+    handlePlayTrack()
   }
 
   //const borderColor = isActive ? '#7f77dd' : 'transparent'
@@ -62,7 +82,13 @@ export function TrackRow({
   return (
     <div
       data-testid={`track-row-${track.id}`}
+      className="focus-visible:outline-2 focus-visible:outline-[#7f77dd] focus-visible:outline-offset-2"
       onClick={handleRowClick}
+      onDoubleClick={handleRowDoubleClick}
+      onKeyDown={handleRowKeyDown}
+      role="group"
+      tabIndex={0}
+      aria-label={`${track.title ?? track.filename ?? 'Untitled'} by ${track.artist ?? 'Unknown artist'}; press Space or double-click to play`}
       style={{
         position: 'relative',
         padding: '6px 10px 6px 6px',
@@ -127,6 +153,7 @@ export function TrackRow({
             data-testid={`track-play-${track.id}`}
             onClick={handlePlayToggle}
             title={isCurrentTrack && isPlaying ? 'Pause' : 'Play'}
+            aria-label={isCurrentTrack && isPlaying ? 'Pause track' : 'Play track'}
             style={{
               position: 'absolute',
               inset: 0,
@@ -219,9 +246,9 @@ export function TrackRow({
         ))}
       </div>
 
-      {/* Stage pill — click cycles Untagged → Tagged → Crate ready → Gig
-          ready and wraps. It stops the click itself, so the row still plays
-          and opens the Inspector when clicked anywhere else. */}
+        {/* Stage pill — click cycles Untagged → Tagged → Crate ready → Gig
+          ready and wraps. It stops the click itself, so it does not open the
+          Inspector; clicking the rest of the row does. */}
       <StagePill track={track} variant="pill" />
 
       {/* Duration + format */}

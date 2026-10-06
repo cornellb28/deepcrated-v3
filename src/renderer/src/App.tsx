@@ -6,7 +6,7 @@ import { Toolbar } from './components/Toolbar'
 import { LibraryView } from './components/LibraryView'
 import { Inspector } from './components/Inpector'
 import { FolderView } from './views/FolderView'
-import { SettingsView, SETTINGS_TAB_KEY } from './views/SettingsView'
+import { SettingsView } from './views/SettingsView'
 import { EmptyState } from './views/EmptyState'
 import { DashboardView } from '@renderer/views/DashboardView'
 import type { View } from './components/Sidebar'
@@ -19,7 +19,7 @@ import { PlayerBar } from './components/PlayerBar'
 import { TagsCloudView } from './views/TagsCloudView'
 import { TagPageView } from './views/TagPageView'
 import { CrateView } from './views/CrateView'
-import { PasswordResetDialog } from './components/PasswordResetDialog'
+import { AccountChip } from './components/AccountChip'
 import { LAST_VIEW_KEY, restoreView, isRestorable } from './lib/lastView'
 import { StaleBuildBanner } from './components/StaleBuildBanner'
 import { useFileDrop } from './hooks/useFileDrop'
@@ -66,8 +66,6 @@ function App(): React.JSX.Element {
   // there is a real moment where we do not yet know — rendering the login
   // form during it would flash a form at a DJ who is already signed in.
   const [auth, setAuth] = useState<AuthState | null>(null)
-  // Opened when a cratecloud:// recovery link arrives from a reset email.
-  const [resetOpen, setResetOpen] = useState(false)
   // Add library roots to app state
   const [libraryRoots, setLibraryRoots] = useState<LibraryRoot[]>([])
   const [reconcileOpen, setReconcileOpen] = useState(false)
@@ -168,13 +166,12 @@ function App(): React.JSX.Element {
 
     window.api.onAuthChanged((state) => {
       setAuth(state)
-      // Only a failed OAuth round trip carries `error` — it has no invoke()
+      // Only a failed sign-in handoff carries `error` — it has no invoke()
       // call left waiting, so this is the only place it can be shown.
-      if (state.error) toast.error('Sign-in failed', { description: state.error })
-      // A password-reset link, as opposed to an ordinary sign-in. Without
-      // this the DJ lands back in the app signed in with the password they
-      // just said they had forgotten, and is never asked to change it.
-      if (state.recovery) setResetOpen(true)
+      if (state.error) toast.error(state.error)
+      if (state.justSignedIn) {
+        toast.success(`Signed in as ${state.user?.email ?? 'your account'}`)
+      }
     })
 
     return () => {
@@ -668,16 +665,6 @@ function App(): React.JSX.Element {
     setPendingFolderNav(folder.id)
   }
 
-  // Where every "Sign in" control in the app leads: Settings, on the
-  // Account tab. The tab is written through the same app_settings key
-  // SettingsView reads on mount, rather than a new prop — that keeps one
-  // mechanism for "which settings tab is open", and it is written before
-  // navigating so the page cannot mount and read the old value first.
-  const openAccount = useCallback(async (): Promise<void> => {
-    await window.api.settings.set(SETTINGS_TAB_KEY, 'account')
-    setActiveView('settings')
-  }, [setActiveView])
-
   // No auth gate. The desktop app is free and entirely local, so it opens
   // straight into the library whether or not anyone is signed in — signing
   // in is reached from Settings and only matters for the paid cloud surface.
@@ -838,28 +825,36 @@ function App(): React.JSX.Element {
 
         {/* Content area */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-          {/* App-level breadcrumb */}
-          <Breadcrumb activeView={activeView} onNavigate={setActiveView} />
+          {/* Persistent account control; it stays visible on every view. */}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            minHeight: '38px',
+            paddingRight: '16px',
+            background: '#0e0e12',
+            borderBottom: '0.5px solid #1e1e2a',
+            flexShrink: 0
+          }}>
+            <Breadcrumb activeView={activeView} onNavigate={setActiveView} />
+            <AccountChip auth={auth} onAuthChanged={setAuth} />
+          </div>
           {/* Views */}
           {activeView === 'dashboard' &&
             (tracks.length === 0 ? (
               <EmptyState
                 onImport={handleImport}
                 onImportPaths={handleImportPaths}
-                auth={auth}
-                onOpenAccount={() => void openAccount()}
               />
             ) : (
               <DashboardView
-                auth={auth}
-                onOpenAccount={() => void openAccount()}
                 onOpenLibrary={() => setActiveView('library')}
               />
             ))}
           {activeView === 'library' && <LibraryView />}
           {activeView === 'folders' &&
             (libraryRoots.length > 0 ? (
-              <FolderView libraryRoots={libraryRoots} />
+              <FolderView libraryRoots={libraryRoots} onRootsChanged={reloadRoots} />
             ) : (
               <div
                 style={{
@@ -940,7 +935,6 @@ function App(): React.JSX.Element {
 
       <PlayerBar />
 
-      <PasswordResetDialog open={resetOpen} onClose={() => setResetOpen(false)} />
       <ReconciliationModal open={reconcileOpen} onClose={() => setReconcileOpen(false)} />
       <SeratoImportConfirmDialog
         open={seratoImportPrompt !== null}

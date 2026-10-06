@@ -21,6 +21,7 @@ export function ViewModeToggle({ mode, onChange }: ViewModeToggleProps): React.J
       <button
         onClick={() => onChange('list')}
         title="List view"
+        aria-label="List view"
         style={{
           background: mode === 'list' ? '#252535' : 'none',
           border: 'none',
@@ -37,6 +38,7 @@ export function ViewModeToggle({ mode, onChange }: ViewModeToggleProps): React.J
       <button
         onClick={() => onChange('grid')}
         title="Grid view"
+        aria-label="Grid view"
         style={{
           background: mode === 'grid' ? '#252535' : 'none',
           border: 'none',

@@ -237,6 +237,7 @@ export function Inspector(): React.JSX.Element {
                 onClick={() => prevTrack && setActiveTrack(prevTrack.id)}
                 disabled={!prevTrack}
                 title="Previous track (↑)"
+                aria-label="Previous track"
                 style={{
                   background: 'none',
                   border: 'none',
@@ -261,6 +262,7 @@ export function Inspector(): React.JSX.Element {
                 onClick={() => nextTrack && setActiveTrack(nextTrack.id)}
                 disabled={!nextTrack}
                 title="Next track (↓)"
+                aria-label="Next track"
                 style={{
                   background: 'none',
                   border: 'none',
@@ -279,6 +281,7 @@ export function Inspector(): React.JSX.Element {
               <button
                 onClick={() => setActiveTrack(null)}
                 title="Close (Esc)"
+                aria-label="Close track inspector"
                 style={{
                   background: 'none',
                   border: 'none',

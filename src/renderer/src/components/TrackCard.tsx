@@ -88,6 +88,27 @@ export function TrackCard({
     else playTrack(track)
   }
 
+  function handlePlayTrack(): void {
+    if (isMissing || !track.filepath) return
+    if (isCurrentTrack) {
+      if (!isPlaying) togglePlayPause()
+    } else {
+      playTrack(track)
+    }
+  }
+
+  function handleCardDoubleClick(e: React.MouseEvent<HTMLDivElement>): void {
+    const target = e.target as HTMLElement
+    if (target.closest('button, input, [role="checkbox"]')) return
+    handlePlayTrack()
+  }
+
+  function handleCardKeyDown(e: React.KeyboardEvent<HTMLDivElement>): void {
+    if (e.key !== ' ' || e.target !== e.currentTarget) return
+    e.preventDefault()
+    handlePlayTrack()
+  }
+
   const borderColor = isActive
     ? '#7f77dd'
     : isSelected
@@ -100,9 +121,15 @@ export function TrackCard({
   return (
     <div
       data-testid={`track-card-${track.id}`}
+      className="focus-visible:outline-2 focus-visible:outline-[#7f77dd] focus-visible:outline-offset-2"
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
-      onClick={() => setActiveTrack(isActive ? null : track.id)}
+      onClick={() => setActiveTrack(track.id)}
+      onDoubleClick={handleCardDoubleClick}
+      onKeyDown={handleCardKeyDown}
+      role="group"
+      tabIndex={0}
+      aria-label={`${track.title ?? track.filename ?? 'Untitled'} by ${track.artist ?? 'Unknown artist'}; press Space or double-click to play`}
       style={{
         height: `${TRACK_CARD_HEIGHT}px`,
         maxWidth: `${TRACK_CARD_MAX_WIDTH}px`,
@@ -170,6 +197,7 @@ export function TrackCard({
             data-testid={`track-play-${track.id}`}
             onClick={handlePlayToggle}
             title={isCurrentTrack && isPlaying ? 'Pause' : 'Play'}
+            aria-label={isCurrentTrack && isPlaying ? 'Pause track' : 'Play track'}
             style={{
               position: 'absolute',
               bottom: '5px',

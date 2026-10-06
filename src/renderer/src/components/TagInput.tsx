@@ -240,6 +240,9 @@ export function TagInput({ trackId, field, label, color = '#7f77dd' }: TagInputP
               {tag.value}
               <button
                 onClick={() => removeAppliedTag(tag)}
+                type="button"
+                title={`Remove ${tag.value}`}
+                aria-label={`Remove ${tag.value}`}
                 style={{
                   background: 'none',
                   border: 'none',
