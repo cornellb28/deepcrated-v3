@@ -1,0 +1,114 @@
+{
+  "_comment": [
+    "Per-track resolutions for the column-vs-tags drift found by",
+    "scripts/tag-drift-report.mjs. Settled with the DJ on 2026-09-25.",
+    "",
+    "The migration reads this instead of guessing. Every conflict the report",
+    "classes as needing a decision must appear here, or the migration refuses",
+    "to run that field — a silent default is how curation gets destroyed.",
+    "",
+    "`resolved` is the exact tag list to end up with, already in final order",
+    "and casing. `source` records which side it came from, for the report."
+  ],
+
+  "delimiters": {
+    "_comment": [
+      "Per field. ' / ' is what TagInput and BulkEditModal join with.",
+      "grouping ALSO accepts ' | ' because the files' own TIT1 frame uses it",
+      "— verified on disk: TIT1 = '90s | CLASSIC'.",
+      "Nothing else is ever auto-split: not ',', '&', '/', ' x ' or 'ft.'."
+    ],
+    "artist": [" / "],
+    "genre": [" / "],
+    "grouping": [" / ", " | "],
+    "label": [" / "],
+    "remixer": [" / "],
+    "composer": [" / "],
+    "comment": [" / "],
+    "album": [" / "]
+  },
+
+  "merges": {
+    "_comment": [
+      "Deliberate merges the DJ asked for, applied before the per-track work.",
+      "NOT the automatic near-duplicate merging that stays out of scope — each",
+      "of these is a named decision. Idempotent: a `from` that no longer",
+      "exists is skipped, so re-running does nothing."
+    ],
+    "genre": [
+      {
+        "from": "Hip Hop",
+        "into": "Hip-Hop",
+        "why": "Settled 2026-09-25: the hyphenated form wins. Both existed because the old normalizer folded casing but left punctuation alone."
+      }
+    ]
+  },
+
+  "_label": [
+    "Reversed 2026-09-25, later the same day. label was briefly treated as a",
+    "DJ-badge namespace because every value in the library was the marker",
+    "SERATOCOLLECTION. That was reading the DATA rather than the FIELD: Serato",
+    "has a Label column and sources it from the file's publisher frame, which",
+    "is what the code has always written. So label is the record label, kept",
+    "as typed, and badges live in comment and grouping.",
+    "",
+    "Nothing about the migration changes — label was backfilled from its own",
+    "column either way. Only normalizeTagValue changed: it no longer",
+    "uppercases the field."
+  ],
+
+  "_scope": [
+    "comment and album were added on 2026-09-25. Both are TagInput fields",
+    "with derived columns, so they carry the same drift risk as the other",
+    "five. They turned out to need no per-track decisions: every comment (15)",
+    "and album (2) case is tags-only — tags exist, the column is empty — so",
+    "the backfill only has to derive the column from the tags it already has."
+  ],
+
+  "tracks": {
+    "67": {
+      "_note": "Tags across all three fields look imported from another track: filepath is 'VLVT JONES - The Love (Bootleg).mp3' but the artist tag said ATCQ. Column wins throughout.",
+      "artist": { "source": "column", "resolved": ["VLVT JONES"] },
+      "genre": {
+        "source": "column",
+        "resolved": ["Soul x Boogie x Jazz"],
+        "review": "' x ' is not an approved delimiter, so this stays ONE tag. Split it by hand if you meant Soul + Boogie + Jazz."
+      },
+      "grouping": {
+        "source": "column",
+        "resolved": ["90s", "HOUSE", "HEADS", "DANCE"],
+        "_note": "split on ' | ', the files' own grouping convention"
+      }
+    },
+
+    "92": {
+      "_note": "Tags had the right split, the column had the right spelling — tags read SEXXY RED.",
+      "artist": { "source": "both", "resolved": ["GloRilla", "Sexyy Red"] }
+    },
+
+    "104": {
+      "_note": "A Brooklyn bootleg edit; the B.I.G. blend is deliberate. Tags' split kept, spelling normalised.",
+      "artist": { "source": "tags", "resolved": ["Notorious B.I.G.", "Fabolous"] },
+      "genre": { "source": "tags", "resolved": ["Hip Hop"] }
+    },
+
+    "111": {
+      "_note": "Same three genres both sides. Tags' casing, column's order.",
+      "genre": { "source": "both", "resolved": ["Dance", "R&B", "Soul"] }
+    },
+
+    "125": {
+      "artist": { "source": "column", "resolved": ["Soul II Soul"] },
+      "remixer": { "source": "column", "resolved": ["90S", "RASTA", "SADELOVE"] }
+    },
+
+    "166": {
+      "_note": "Tags' split, column's order and casing — it is Foxy Brown's record.",
+      "artist": { "source": "both", "resolved": ["Foxy Brown", "Dru Hill"] }
+    },
+
+    "183": {
+      "genre": { "source": "tags", "resolved": ["Hip Hop"] }
+    }
+  }
+}

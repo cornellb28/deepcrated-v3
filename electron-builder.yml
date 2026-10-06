@@ -1,0 +1,54 @@
+appId: com.electron.app
+productName: cratecloud-v3
+directories:
+  buildResources: build
+files:
+  - '!**/.vscode/*'
+  - '!src/*'
+  - '!electron.vite.config.{js,ts,mjs,cjs}'
+  - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
+  - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
+  - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+asarUnpack:
+  - resources/**
+# Deep link for the OAuth and password-reset callbacks. app.setAsDefault-
+# ProtocolClient registers this at runtime, which is what makes it work in
+# dev, but a PACKAGED app needs the scheme declared in its bundle too:
+# electron-builder turns this into CFBundleURLTypes on macOS and the
+# equivalent registry entries on Windows. Without it the browser has nothing
+# to hand cratecloud://auth-callback back to, and sign-in dead-ends in the
+# browser on a machine that has never run the app from source.
+protocols:
+  - name: CrateCloud
+    schemes:
+      - cratecloud
+win:
+  executableName: cratecloud-v3
+nsis:
+  artifactName: ${name}-${version}-setup.${ext}
+  shortcutName: ${productName}
+  uninstallDisplayName: ${productName}
+  createDesktopShortcut: always
+mac:
+  entitlementsInherit: build/entitlements.mac.plist
+  extendInfo:
+    - NSCameraUsageDescription: Application requests access to the device's camera.
+    - NSMicrophoneUsageDescription: Application requests access to the device's microphone.
+    - NSDocumentsFolderUsageDescription: Application requests access to the user's Documents folder.
+    - NSDownloadsFolderUsageDescription: Application requests access to the user's Downloads folder.
+  notarize: false
+dmg:
+  artifactName: ${name}-${version}.${ext}
+linux:
+  target:
+    - AppImage
+    - snap
+    - deb
+  maintainer: electronjs.org
+  category: Utility
+appImage:
+  artifactName: ${name}-${version}.${ext}
+npmRebuild: false
+publish:
+  provider: generic
+  url: https://example.com/auto-updates

@@ -1,0 +1,9 @@
+{
+  "extends": "@electron-toolkit/tsconfig/tsconfig.web.json",
+  "include": ["tests/**/*", "playwright.config.ts", "src/renderer/src/types/global.d.ts"],
+  "exclude": ["tests/.probe"],
+  "compilerOptions": {
+    "composite": true,
+    "types": ["node", "@playwright/test"]
+  }
+}
