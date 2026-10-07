@@ -100,7 +100,7 @@ export function RenameFolderDialog({
         </div>
         <div style={{ fontSize: '11px', color: '#555', marginBottom: '14px', lineHeight: 1.5 }}>
           {isWatchedFolder
-            ? 'This renames the watched folder on your drive and follows it there — CrateCloud keeps watching it under the new name.'
+            ? 'This renames the watched folder on your drive and follows it there — DeepCrated keeps watching it under the new name.'
             : 'This renames the folder on your drive, not just here.'}
           {trackCount > 0 && ` ${trackCount} track${trackCount === 1 ? '' : 's'}`}
           {subfolderCount > 0 &&

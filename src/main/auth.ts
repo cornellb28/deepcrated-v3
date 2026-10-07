@@ -7,6 +7,7 @@ import { getClient, isConfigured, type Session } from './supabase'
 import { saveSession, loadSession, clearSession, isPersistenceAvailable } from './authStore'
 import {
   CALLBACK_PROTOCOL,
+  CALLBACK_PROTOCOLS,
   parseCallbackUrl,
   beginFlow,
   clearFlow,
@@ -16,7 +17,7 @@ import {
 } from './authCallback'
 import { refreshDelayMs, NETWORK_RETRY_DELAY_MS } from './sessionRefresh'
 
-export { CALLBACK_PROTOCOL, parseCallbackUrl }
+export { CALLBACK_PROTOCOL, CALLBACK_PROTOCOLS, parseCallbackUrl }
 export type { ParsedCallback } from './authCallback'
 
 export interface AuthUser {
@@ -72,8 +73,8 @@ const AUTH_URLS: Record<AuthDestination, string | undefined> = {
 
 // TODO(auth-handoff): Verify the full round trip against the real website
 // endpoints (create + redeem) on a PACKAGED build, for email and Google.
-// TODO(auth-handoff): Decide whether to rename the cratecloud:// scheme; it is
-// kept as-is because renaming breaks installed apps.
+// The scheme is deepcrated://; cratecloud:// is still accepted until the website
+// and Supabase allowlist are switched — see TODO(deepcrated) in authCallback.ts.
 
 let currentSession: Session | null = null
 let currentEntitlement: Entitlement | null = null

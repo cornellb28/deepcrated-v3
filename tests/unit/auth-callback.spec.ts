@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto'
 import {
   parseCallbackUrl,
   CALLBACK_PROTOCOL,
+  LEGACY_CALLBACK_PROTOCOL,
   PENDING_FLOW_TTL_MS,
   beginFlow,
   clearFlow,
@@ -69,9 +70,32 @@ test('a wrong authority, path or credentials is not ours', () => {
   expect(parseCallbackUrl(`${CALLBACK_PROTOCOL}://auth-callback:443${q}`).kind).toBe('none')
 })
 
+test('the primary scheme is deepcrated and the old cratecloud scheme is still accepted', () => {
+  expect(CALLBACK_PROTOCOL).toBe('deepcrated')
+  expect(LEGACY_CALLBACK_PROTOCOL).toBe('cratecloud')
+  for (const scheme of ['deepcrated', 'cratecloud']) {
+    expect(parseCallbackUrl(`${scheme}://auth-callback?key=k1&state=s1`)).toEqual({
+      kind: 'handoff',
+      key: 'k1',
+      state: 's1'
+    })
+  }
+})
+
+test('the legacy scheme is held to the same strict rules', () => {
+  const legacy = `${LEGACY_CALLBACK_PROTOCOL}://auth-callback`
+  expect(parseCallbackUrl(`${legacy}?key=k&state=s#access_token=a`).kind).toBe('invalid')
+  expect(parseCallbackUrl(`${legacy}?key=k&state=s&code=c`).kind).toBe('invalid')
+  expect(parseCallbackUrl(`${LEGACY_CALLBACK_PROTOCOL}://other-host?key=k&state=s`).kind).toBe(
+    'none'
+  )
+})
+
 test('a foreign scheme or non-URL argument is ignored', () => {
   expect(parseCallbackUrl('https://example.com/?key=k&state=s').kind).toBe('none')
   expect(parseCallbackUrl('cratecloudx://auth-callback?key=k&state=s').kind).toBe('none')
+  expect(parseCallbackUrl('deepcratedx://auth-callback?key=k&state=s').kind).toBe('none')
+  expect(parseCallbackUrl('deepcrate://auth-callback?key=k&state=s').kind).toBe('none')
   expect(parseCallbackUrl('--enable-logging').kind).toBe('none')
   expect(parseCallbackUrl('/Users/dj/Music/track.mp3').kind).toBe('none')
   expect(parseCallbackUrl('').kind).toBe('none')

@@ -15,7 +15,7 @@ import { makeTempDir } from '../helpers/audio'
 let workDir: string
 
 test.beforeEach(() => {
-  workDir = makeTempDir('cratecloud-crate-')
+  workDir = makeTempDir('deepcrated-crate-')
 })
 
 test.afterEach(() => {
@@ -205,7 +205,7 @@ test('with overwrite off, an existing crate file is left untouched and a suffixe
     { libraryOverridePath: seratoDir, overwriteExisting: false }
   )
 
-  expect(outcome.paths).toEqual([join(subcrates, 'Mine (CrateCloud).crate')])
+  expect(outcome.paths).toEqual([join(subcrates, 'Mine (DeepCrated).crate')])
   expect(readFileSync(existingPath, 'utf8')).toBe('SERATO ORIGINAL — MUST NOT BE CLOBBERED')
 })
 

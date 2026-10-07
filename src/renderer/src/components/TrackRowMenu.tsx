@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import ReactDOM from 'react-dom'
 import { toast } from 'sonner'
-import { MoreVertical, Library, Trash2, FolderPlus, FolderMinus, Tag, Image as ImageIcon } from 'lucide-react'
+import { MoreVertical, Library, Trash2, FolderPlus, FolderMinus, Tag, Image as ImageIcon, EyeOff } from 'lucide-react'
 import { useLibraryStore } from '../store/useLibraryStore'
 import { usePlayerStore } from '../store/usePlayerStore'
 import { DeleteFileConfirmDialog } from './DeleteFileConfirmDialog'
@@ -72,6 +72,17 @@ export function TrackRowMenu({ track, crateId }: TrackRowMenuProps): React.JSX.E
       left: rect.right - 210,
     })
     setMenuOpen(true)
+  }
+
+  async function handleTogglePrivate(): Promise<void> {
+    const next = track.stats_private !== 1
+    const result = await window.api.privacy.setTrackPrivate([track.id], next)
+    if (result.ok) {
+      updateTrack(track.id, { stats_private: next ? 1 : 0 })
+      toast.success(next ? 'Excluded from anonymous stats' : 'No longer kept private')
+    } else {
+      toast.error('Could not change privacy', { description: result.error })
+    }
   }
 
   function closeMenu(): void {
@@ -239,6 +250,13 @@ export function TrackRowMenu({ track, crateId }: TrackRowMenuProps): React.JSX.E
       {track.filepath && !isMissing && (
         <MenuItem onClick={handleReanalyze} icon="⟳">Re-analyze</MenuItem>
       )}
+      {/* Excludes this track from anonymous stats, even when sharing is on. */}
+      <MenuItem
+        onClick={() => { closeMenu(); void handleTogglePrivate() }}
+        icon={<EyeOff size={14} />}
+      >
+        {track.stats_private === 1 ? 'Keep private ✓' : 'Keep private'}
+      </MenuItem>
 
       <Divider />
 
@@ -280,10 +298,10 @@ export function TrackRowMenu({ track, crateId }: TrackRowMenuProps): React.JSX.E
       )}
 
       <MenuItem
-        onClick={() => { closeMenu(); void runRemoval(false, `Removed "${trackTitle}" from CrateCloud`) }}
+        onClick={() => { closeMenu(); void runRemoval(false, `Removed "${trackTitle}" from DeepCrated`) }}
         icon={<Library size={14} />}
       >
-        Remove from CrateCloud
+        Remove from DeepCrated
       </MenuItem>
       <MenuItem
         onClick={() => { closeMenu(); setConfirmOpen(true) }}

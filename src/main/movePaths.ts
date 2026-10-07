@@ -16,6 +16,8 @@ import { extname, basename } from 'path'
 //
 // Leading dot so chokidar's `ignored: /(^|[/\\])\../` skips it — a partial
 // file must never reach the watcher as an `add`.
+// Pre-rename prefix kept on purpose: an interrupted move from an older version
+// can leave a file with it behind, and the watcher must keep recognising those.
 export const PARTIAL_PREFIX = '.cratecloud-partial-'
 
 export function partialNameFor(filename: string): string {

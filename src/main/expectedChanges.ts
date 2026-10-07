@@ -1,5 +1,5 @@
 // ── Expected filesystem changes ───────────────────────────────────────────
-// When CrateCloud itself moves a file, chokidar reports it exactly as if the
+// When DeepCrated itself moves a file, chokidar reports it exactly as if the
 // DJ had done it in Finder: an `unlink` on the old path and an `add` on the
 // new one. The watcher then does real work for it — queues a `pending_changes`
 // row for the DJ to review, and on the slow path marks the track missing and

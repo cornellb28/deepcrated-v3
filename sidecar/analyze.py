@@ -1,6 +1,6 @@
 #!.user/bin/env python3  shebang - If you execute this file directly, use Python 3 to run it.
 """
-CrateCloud audio sidecar — analyze.py
+DeepCrated audio sidecar — analyze.py
 Reads BPM and key from an audio file.
 Returns a single JSON object to stdout.
 Electron reads that JSON via child_process.
@@ -141,6 +141,22 @@ def detect_key(y, sr):
         'key_camelot':  camelot,
     }
 
+def _ufid(tags, owner):
+    """
+    Reads an ID3 UFID frame by owner. UFID holds raw bytes in .data rather
+    than text, so the generic get() in _extract_tags cannot read it. Returns
+    None for formats with no UFID frames (Vorbis, MP4) or a missing frame.
+    """
+    try:
+        frame = tags.get('UFID:' + owner)
+        data = getattr(frame, 'data', None)
+        if isinstance(data, bytes):
+            value = data.decode('utf-8', errors='ignore').strip()
+            return value or None
+    except Exception:
+        pass
+    return None
+
 def _extract_tags(filepath):
     """
     Read existing ID3 tags from the file using mutagen.
@@ -160,6 +176,8 @@ def _extract_tags(filepath):
         'grouping':    None,
         'bpm_tag':     None,  # BPM already in the file's tags
         'client_uuid': None,  # CRATECLOUD_ID, if a previous session wrote one — read-only for now
+        'isrc':        None,  # raw ISRC tag value; main validates and normalizes it
+        'musicbrainz_recording_id': None,  # raw MusicBrainz recording id tag, same
     }
 
     try:
@@ -171,7 +189,16 @@ def _extract_tags(filepath):
         # This covers MP3 (ID3), FLAC, M4A
         def get(keys):
             for key in keys:
-                val = audio.tags.get(key)
+                # One key list covers every container, so some keys do not
+                # exist for the file at hand — and Vorbis/FLAC tags RAISE on a
+                # non-ASCII key like '\xa9gen' instead of returning None. That
+                # exception used to escape to the outer handler and silently
+                # drop every field read after it, so a FLAC with no genre lost
+                # its label, composer and everything below.
+                try:
+                    val = audio.tags.get(key)
+                except Exception:
+                    continue
                 if val:
                     # ID3 tags are objects, FLAC tags are lists of str, M4A
                     # freeform (----:) atoms are lists of raw bytes (MP4FreeForm
@@ -202,6 +229,16 @@ def _extract_tags(filepath):
         tags['bpm_tag']     = get(['TBPM', 'bpm'])
         tags['client_uuid'] = get(['TXXX:CRATECLOUD_ID', 'cratecloud_id',
                                     '----:com.apple.iTunes:CRATECLOUD_ID'])
+        # ISRC: ID3 TSRC, Vorbis/FLAC ISRC (mutagen lowercases those keys),
+        # and the iTunes freeform atom MP4 files use (Picard writes this one).
+        tags['isrc']        = get(['TSRC', 'isrc', '----:com.apple.iTunes:ISRC'])
+        # MusicBrainz's "track id" tag is the RECORDING id (the release-track
+        # id is a different tag). ID3 carries it as a UFID frame, not text.
+        tags['musicbrainz_recording_id'] = (
+            _ufid(audio.tags, 'http://musicbrainz.org') or
+            get(['musicbrainz_trackid',
+                 '----:com.apple.iTunes:MusicBrainz Track Id'])
+        )
 
     except Exception:
         # Partial tag read is fine
@@ -227,6 +264,27 @@ def load_via_ffmpeg(filepath, sr=22050):
         raise RuntimeError(message)
     y = np.frombuffer(proc.stdout, dtype=np.float32)
     return y, sr
+
+def expected_duration(filepath):
+    """
+    Length the file's own header claims, in seconds, or None when there is no
+    claim worth trusting. Used only to notice truncation: a decode that comes
+    back much shorter than the header says means the file was cut off.
+
+    mutagen flags an MP3 whose length it had to ESTIMATE (no Xing/VBRI header)
+    as `sketchy`; a VBR file estimated that way can be wrong by far more than
+    the shortfall threshold, so those are not trusted.
+    """
+    try:
+        audio = mutagen.File(filepath)
+        if not audio or not audio.info:
+            return None
+        if getattr(audio.info, 'sketchy', False):
+            return None
+        length = float(audio.info.length)
+        return round(length, 2) if length > 0 else None
+    except Exception:
+        return None
 
 def load_audio(filepath, sr=22050):
     """
@@ -313,6 +371,10 @@ def analyze(filepath):
     except Exception as e:
         return {
             'success': False,
+            # A stable code, so the app can tell "this file cannot be decoded"
+            # from "file not found" without parsing the message — which is
+            # ffmpeg's and carries the full path.
+            'error_code': 'decode_failed',
             'error':   f'Could not load audio: {str(e)}',
             'tags':    tags,
         }
@@ -366,6 +428,9 @@ def analyze(filepath):
         'camelot':      key['key_camelot'],
         'duration_sec': duration_sec,
         'duration_str': duration_str,
+        # What the header claims, for truncation detection. None = no trusted
+        # claim (see expected_duration).
+        'expected_duration_sec': expected_duration(filepath),
         'bpm_tag':      tags['bpm_tag'],
         'artwork_base64': artwork_base64,
     }
@@ -415,6 +480,8 @@ def read_tags(filepath: str) -> dict:
     'key_full':        None,
     'camelot':         None,
     'client_uuid':     tags['client_uuid'],
+    'isrc':            tags['isrc'],
+    'musicbrainz_recording_id': tags['musicbrainz_recording_id'],
     'artwork_base64':  artwork_base64,
     'analyzed':        False,   # ← tells main process this needs Phase 2
   }
@@ -463,6 +530,31 @@ def probe_duration(filepath: str) -> dict:
         return {'success': False, 'error': str(e), 'filepath': filepath}
 
 
+def run_identity_batch():
+    """
+    Reads file paths from stdin, one per line, and prints one JSON line per
+    path with just the identity tags (ISRC, MusicBrainz recording id). This
+    is what the library backfill uses: starting this process once per file
+    would cost seconds each for a bundled binary, while a mutagen read is
+    milliseconds. Output is flushed per line so the caller can show progress.
+    """
+    for line in sys.stdin:
+        filepath = line.rstrip('\r\n')
+        if not filepath:
+            continue
+        entry = {'filepath': filepath, 'ok': False, 'isrc': None,
+                 'musicbrainz_recording_id': None}
+        try:
+            if os.path.exists(filepath):
+                tags = _extract_tags(filepath)
+                entry['ok'] = True
+                entry['isrc'] = tags['isrc']
+                entry['musicbrainz_recording_id'] = tags['musicbrainz_recording_id']
+        except Exception:
+            pass
+        print(json.dumps(entry), flush=True)
+
+
 # ─── Entry point ─────────────────────────────────────────
 
 if __name__ == '__main__':
@@ -472,6 +564,10 @@ if __name__ == '__main__':
             'error':   'No file path provided. Usage: python3 analyze.py /path/to/file.mp3'
         }))
         sys.exit(1)
+
+    if sys.argv[1] == '--identity-batch':
+        run_identity_batch()
+        sys.exit(0)
 
     parser = argparse.ArgumentParser()
     parser.add_argument('filepath', help='Path to audio file')

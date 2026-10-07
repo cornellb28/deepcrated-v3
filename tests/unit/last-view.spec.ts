@@ -11,7 +11,7 @@ import {
 // more than the happy path.
 
 test('a view that stands on its own is restored', () => {
-  for (const view of ['dashboard', 'library', 'folders', 'settings']) {
+  for (const view of ['dashboard', 'library', 'browse', 'folders', 'settings']) {
     expect(restoreView(view)).toBe(view)
   }
 })

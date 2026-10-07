@@ -32,14 +32,13 @@ import { existsSync, readFileSync } from 'fs'
 import { homedir } from 'os'
 import { join } from 'path'
 
-const DEFAULT_DB = join(
-  homedir(),
-  'Library',
-  'Application Support',
-  'cratecloud-v3',
-  'cratecloud',
-  'library.db'
-)
+// The data folder is named after the app: DeepCrated now, cratecloud-v3 before
+// the rename. Prefers the new one, falls back to the old so the script still
+// works on a machine whose data has not been moved yet.
+const dataDb = (appFolder) =>
+  join(homedir(), 'Library', 'Application Support', appFolder, 'cratecloud', 'library.db')
+const DEFAULT_DB =
+  [dataDb('DeepCrated'), dataDb('cratecloud-v3')].find((p) => existsSync(p)) ?? dataDb('DeepCrated')
 
 // ── Args ──────────────────────────────────────────────────────────────────
 const args = process.argv.slice(2)
@@ -104,7 +103,7 @@ function safeToSplit(raw) {
 }
 
 // ── Refuse to write to a database the app still has open ─────────────────
-// SQLite in WAL mode would happily let this write while CrateCloud is
+// SQLite in WAL mode would happily let this write while DeepCrated is
 // running, and both halves of that are traps:
 //
 //   - the running app's Zustand store holds pre-migration tracks and tags,
@@ -120,7 +119,7 @@ const shmPath = `${dbPath}-shm`
 if (apply && (existsSync(walPath) || existsSync(shmPath))) {
   console.error(
     `Refusing to write: ${dbPath} looks open (a -wal/-shm is present).\n` +
-      `Quit CrateCloud (\u2318Q, not just closing the window \u2014 it holds a single-instance\n` +
+      `Quit DeepCrated (\u2318Q, not just closing the window \u2014 it holds a single-instance\n` +
       `lock) and run this again. Pass --force to override, but read the comment\n` +
       `above this check first.`
   )

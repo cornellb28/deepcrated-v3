@@ -1,6 +1,6 @@
 // ── Rescan: reconciling the DB against what is actually on disk ───────────
 // The watcher only hears about changes made while the app was running.
-// Anything that happened with CrateCloud closed — a drive reorganised in
+// Anything that happened with DeepCrated closed — a drive reorganised in
 // Finder, files deleted, a folder renamed — is invisible until something
 // walks the tree and compares. That is what a rescan is, and it's the
 // deliberate redundancy alongside the watcher rather than a legacy fallback.

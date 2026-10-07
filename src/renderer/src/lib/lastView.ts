@@ -4,7 +4,7 @@
 
 export const LAST_VIEW_KEY = 'last_view'
 
-export type RestorableView = 'dashboard' | 'library' | 'folders' | 'settings'
+export type RestorableView = 'dashboard' | 'library' | 'browse' | 'folders' | 'settings'
 
 // An allow-list, not a deny-list. 'tags' and 'crates' are excluded because
 // they only mean anything alongside a selected tag or crate — component
@@ -14,7 +14,9 @@ export type RestorableView = 'dashboard' | 'library' | 'folders' | 'settings'
 // 'board' was here until the kanban view was removed; a DJ upgrading with
 // it still stored lands on the dashboard through the fallback below, which
 // is exactly what that fallback is for.
-const RESTORABLE: readonly string[] = ['dashboard', 'library', 'folders', 'settings']
+// 'browse' is restorable because it stands alone: a reload lands on the Browse
+// all hub (the deeper pages live in the browse store, which is not persisted).
+const RESTORABLE: readonly string[] = ['dashboard', 'library', 'browse', 'folders', 'settings']
 
 export const DEFAULT_VIEW: RestorableView = 'dashboard'
 

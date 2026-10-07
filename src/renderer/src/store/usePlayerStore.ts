@@ -1,10 +1,12 @@
 import { create } from 'zustand'
+import { readPref } from '../lib/prefs'
 
-const VOLUME_STORAGE_KEY = 'cratecloud_player_volume'
+const VOLUME_STORAGE_KEY = 'deepcrated_player_volume'
+const LEGACY_VOLUME_STORAGE_KEY = 'cratecloud_player_volume'
 
 function loadInitialVolume(): number {
   try {
-    const raw = localStorage.getItem(VOLUME_STORAGE_KEY)
+    const raw = readPref(VOLUME_STORAGE_KEY, LEGACY_VOLUME_STORAGE_KEY)
     const n = raw != null ? parseFloat(raw) : NaN
     return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : 0.8
   } catch {

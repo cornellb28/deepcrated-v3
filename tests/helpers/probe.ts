@@ -29,7 +29,7 @@ function buildProbe(): void {
   mkdirSync(PROBE_BUILD_DIR, { recursive: true })
   writeFileSync(
     join(PROBE_BUILD_DIR, 'package.json'),
-    JSON.stringify({ name: 'cratecloud-probe', version: '0.0.0', main: 'main.js' }, null, 2)
+    JSON.stringify({ name: 'deepcrated-probe', version: '0.0.0', main: 'main.js' }, null, 2)
   )
   execFileSync(
     ESBUILD_BIN,
@@ -61,13 +61,13 @@ export interface ProbeSession {
 // one process is still there in the next (which is what "persisted" means
 // here, as opposed to "the in-memory store said so").
 export function createProbeSession(): ProbeSession {
-  const userDataDir = makeTempDir('cratecloud-probe-')
+  const userDataDir = makeTempDir('deepcrated-probe-')
 
   return {
     userDataDir,
     async run<T = unknown>(ops: ProbeOp[]): Promise<ProbeResult<T>[]> {
       buildProbe()
-      const ioDir = makeTempDir('cratecloud-probe-io-')
+      const ioDir = makeTempDir('deepcrated-probe-io-')
       const opsPath = join(ioDir, 'ops.json')
       const outPath = join(ioDir, 'out.json')
       writeFileSync(opsPath, JSON.stringify(ops))

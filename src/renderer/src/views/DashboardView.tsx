@@ -1,67 +1,17 @@
-import React, { useState } from 'react'
+import React from 'react'
 import { useLibraryStore } from '../store/useLibraryStore'
 import { Badge } from '@renderer/components/ui/badge'
 import { useArtworkUrl } from '../hooks/useArtworkUrl'
-import { TrackRow } from '../components/TrackRow'
-import { BulkBar } from '../components/BulkBar'
+import { HealthSection } from '../components/HealthSection'
+import { BrowseCard } from '../components/BrowseCard'
+import { BROWSE_CARD_COLORS } from '../lib/browse/cardStyle'
 import { TagBadge } from '../components/TagBadge'
-import { applySelection, selectAll, type SelectModifiers } from '../lib/selection'
 
-// ── "Needs attention" ─────────────────────────────────────────────────────
-// The predicates live here, once, and are used BOTH to count and to build
-// the expanded list. Defining them twice is how a box comes to say 128 and
-// then show a different 130 tracks.
-type NeedsKey = 'bpm' | 'key' | 'artwork' | 'genre'
-
-interface NeedsDef {
-  key: NeedsKey
-  label: string
-  // What the DJ actually does about it. Shown in the expanded panel, where
-  // there is room for a sentence — a count alone tells you the size of the
-  // problem and nothing about the fix.
-  hint: string
-  test: (t: Track) => boolean
-}
-
-const NEEDS: NeedsDef[] = [
-  {
-    key: 'bpm',
-    label: 'Without BPM',
-    hint: 'Analysis fills these in — select them in All Tracks and run it.',
-    test: (t) => !t.bpm
-  },
-  {
-    key: 'key',
-    label: 'Without key',
-    hint: 'Analysis fills these in too, in the same pass as BPM.',
-    test: (t) => !t.key_camelot
-  },
-  {
-    key: 'artwork',
-    label: 'Without artwork',
-    hint: 'Add art from the inspector, or re-import if the file has art embedded.',
-    test: (t) => !t.artwork_hash
-  },
-  {
-    key: 'genre',
-    label: 'Without genre',
-    hint: 'Set a genre in the inspector, or tag several at once with bulk edit.',
-    test: (t) => !t.genre
-  }
-]
-
-// How many rows the inline panel draws before it stops. This is a glance,
-// not a work queue: a library with 8,000 untagged tracks would otherwise
-// mount 8,000 rows and jam the dashboard on a single click. The footer says
-// how many were left out.
-const PANEL_LIMIT = 100
-const GENRE_CARD_COLORS = ['#c13b6b', '#6250bd', '#147ca3', '#bd5e27', '#25825f']
 
 interface DashboardStats {
   total: number
   analyzed: number
   missing: number
-  needs: Record<NeedsKey, number>
   totalDurationHr: number
   topTags: { tag: Tag; count: number }[]
   topGenres: { tag: Tag; count: number }[]
@@ -72,9 +22,6 @@ interface DashboardStats {
 function computeStats(tracks: Track[], trackTags: Map<number, Tag[]>): DashboardStats {
   const analyzed = tracks.filter((t) => t.analyzed_at !== null).length
   const missing = tracks.filter((t) => t.missing === 1).length
-  const needs = Object.fromEntries(
-    NEEDS.map((n) => [n.key, tracks.filter(n.test).length])
-  ) as Record<NeedsKey, number>
   const totalDurationHr = Math.round(
     tracks.reduce((sum, t) => sum + (t.duration_sec ?? 0), 0) / 3600
   )
@@ -132,7 +79,6 @@ function computeStats(tracks: Track[], trackTags: Map<number, Tag[]>): Dashboard
     total: tracks.length,
     analyzed,
     missing,
-    needs,
     totalDurationHr,
     topTags,
     topGenres,
@@ -145,48 +91,13 @@ interface DashboardViewProps {
   // Switches to All Tracks. A callback rather than a store write because
   // App owns activeView, including persisting it — see setActiveView.
   onOpenLibrary: () => void
+  // Opens the Browse all hub.
+  onOpenBrowse: () => void
 }
 
-export function DashboardView({ onOpenLibrary }: DashboardViewProps): React.JSX.Element {
+export function DashboardView({ onOpenLibrary, onOpenBrowse }: DashboardViewProps): React.JSX.Element {
   const { tracks, trackTags, setPendingTagNav } = useLibraryStore()
   const stats = computeStats(tracks, trackTags)
-
-  // Which "Needs attention" box is expanded, or null for none. Deliberately
-  // one at a time: four open lists would push everything below off-screen
-  // and the dashboard stops being a dashboard.
-  const [openKey, setOpenKey] = useState<NeedsKey | null>(null)
-
-  // Selection inside the panel, with the same range rules as every other
-  // list — applySelection owns the shift-click arithmetic so the dashboard
-  // cannot drift from All Tracks on what a shift-click means.
-  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
-  const [anchorId, setAnchorId] = useState<number | null>(null)
-
-  const openDef = NEEDS.find((n) => n.key === openKey) ?? null
-  // Recomputed from `tracks` on every render rather than snapshotted when
-  // the box was clicked, so a track that gets analysed while the panel is
-  // open drops out of the list on its own.
-  const openTracks = openDef ? tracks.filter(openDef.test) : []
-  const shownTracks = openTracks.slice(0, PANEL_LIMIT)
-  // The rendered slice, not the whole result: a shift-click can only span
-  // rows that exist, and applySelection falls back to a plain toggle for an
-  // id it cannot find.
-  const shownIds = shownTracks.map((t) => t.id)
-
-  // Switching or closing a box drops the selection with it. Carrying it over
-  // would leave a bar reading "12 selected" above a list those twelve tracks
-  // are no longer in — and a bulk action would then hit the wrong set.
-  function openBox(next: NeedsKey | null): void {
-    setOpenKey(next)
-    setSelectedIds(new Set())
-    setAnchorId(null)
-  }
-
-  function handleSelect(id: number, modifiers?: SelectModifiers): void {
-    const result = applySelection(selectedIds, shownIds, id, modifiers, anchorId)
-    setSelectedIds(result.selected)
-    setAnchorId(result.anchorId)
-  }
 
   return (
     <div style={{
@@ -283,7 +194,27 @@ export function DashboardView({ onOpenLibrary }: DashboardViewProps): React.JSX.
       </div>
 
       {/* ── Browse by genre ─────────────────────── */}
-      <SectionTitle>Browse by genre</SectionTitle>
+      <SectionTitle
+        action={
+          <button
+            type="button"
+            onClick={onOpenBrowse}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: '#7f77dd',
+              fontSize: '11px',
+              cursor: 'pointer',
+              fontFamily: 'inherit',
+              padding: 0
+            }}
+          >
+            Browse all →
+          </button>
+        }
+      >
+        Browse by genre
+      </SectionTitle>
       {stats.topGenres.length === 0 ? (
         <div style={{
           background: '#13131b',
@@ -304,71 +235,15 @@ export function DashboardView({ onOpenLibrary }: DashboardViewProps): React.JSX.
           marginBottom: '24px',
         }}>
           {stats.topGenres.map(({ tag, count }, index) => (
-            <button
+            <BrowseCard
               key={tag.id}
-              type="button"
+              label={tag.value}
+              count={count}
+              color={BROWSE_CARD_COLORS[index % BROWSE_CARD_COLORS.length]}
               onClick={() => setPendingTagNav(tag)}
-              aria-label={`Browse ${count} tracks tagged ${tag.value}`}
+              ariaLabel={`Browse ${count} tracks tagged ${tag.value}`}
               title={`Show all ${count} tracks tagged "${tag.value}"`}
-              style={{
-                position: 'relative',
-                isolation: 'isolate',
-                overflow: 'hidden',
-                display: 'flex',
-                flexDirection: 'column',
-                justifyContent: 'space-between',
-                alignItems: 'flex-start',
-                height: '112px',
-                minWidth: 0,
-                padding: '14px',
-                border: 'none',
-                borderRadius: '10px',
-                background: GENRE_CARD_COLORS[index % GENRE_CARD_COLORS.length],
-                color: '#fff',
-                textAlign: 'left',
-                fontFamily: 'inherit',
-                cursor: 'pointer',
-                boxShadow: 'inset 0 0 0 1px #ffffff12',
-                transition: 'transform 0.15s ease, filter 0.15s ease',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.transform = 'translateY(-2px)'
-                e.currentTarget.style.filter = 'brightness(1.12)'
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.transform = 'none'
-                e.currentTarget.style.filter = 'none'
-              }}
-            >
-              <span aria-hidden style={{
-                position: 'absolute',
-                zIndex: 0,
-                width: '92px',
-                height: '92px',
-                right: '-18px',
-                top: '22px',
-                borderRadius: '50%',
-                background: 'linear-gradient(145deg, #ffffff38, #ffffff08)',
-                transform: 'rotate(-24deg)',
-              }} />
-              <span style={{
-                position: 'relative',
-                zIndex: 1,
-                fontSize: '15px',
-                fontWeight: 600,
-                lineHeight: 1.15,
-                overflow: 'hidden',
-                display: '-webkit-box',
-                WebkitBoxOrient: 'vertical',
-                WebkitLineClamp: 2,
-                overflowWrap: 'anywhere',
-              }}>
-                {tag.value}
-              </span>
-              <span style={{ position: 'relative', zIndex: 1, fontSize: '10px', color: '#ffffffbf' }}>
-                {count.toLocaleString()} {count === 1 ? 'track' : 'tracks'}
-              </span>
-            </button>
+            />
           ))}
         </div>
       )}
@@ -386,199 +261,8 @@ export function DashboardView({ onOpenLibrary }: DashboardViewProps): React.JSX.
         </div>
       )}
 
-      {/* ── Row 2 — Needs attention ───────────────── */}
-      <SectionTitle>Needs attention</SectionTitle>
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(4, 1fr)',
-        gap: '10px',
-        marginBottom: openDef ? '10px' : '24px',
-      }}>
-        {NEEDS.map(def => {
-          const value = stats.needs[def.key]
-          const isOpen = openKey === def.key
-          // A box at zero has nothing to show. Left as a plain div rather
-          // than a disabled button so it never offers a click that would
-          // open an empty panel.
-          const clickable = value > 0
-
-          const body = (
-            <>
-              <div style={{
-                fontSize: '20px',
-                fontWeight: 500,
-                color: value > 0 ? '#ba7517' : '#1d9e75',
-                minWidth: '40px'
-              }}>
-                {value > 0 ? value.toLocaleString() : '✓'}
-              </div>
-              <div style={{
-                fontSize: '12px',
-                color: isOpen ? '#c0c0d8' : '#555',
-                textAlign: 'left',
-                flex: 1
-              }}>
-                {def.label}
-              </div>
-              {clickable && (
-                <span
-                  aria-hidden
-                  style={{
-                    fontSize: '10px',
-                    color: isOpen ? '#ba7517' : '#3a3a48',
-                    transform: isOpen ? 'rotate(180deg)' : 'none',
-                    transition: 'transform 0.15s ease, color 0.15s ease',
-                    flexShrink: 0
-                  }}
-                >
-                  ▾
-                </span>
-              )}
-            </>
-          )
-
-          const shared: React.CSSProperties = {
-            background: isOpen ? '#191521' : '#13131b',
-            border: isOpen
-              ? '0.5px solid #ba751788'
-              : value > 0
-                ? '0.5px solid #ba751733'
-                : '0.5px solid #1e1e2a',
-            borderRadius: '10px',
-            padding: '14px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '12px',
-            width: '100%'
-          }
-
-          if (!clickable) {
-            return <div key={def.key} style={shared}>{body}</div>
-          }
-
-          return (
-            <button
-              key={def.key}
-              type="button"
-              onClick={() => openBox(isOpen ? null : def.key)}
-              aria-expanded={isOpen}
-              aria-controls="needs-attention-panel"
-              style={{
-                ...shared,
-                cursor: 'pointer',
-                fontFamily: 'inherit',
-                textAlign: 'left',
-                transition: 'background 0.15s ease, border-color 0.15s ease'
-              }}
-            >
-              {body}
-            </button>
-          )
-        })}
-      </div>
-
-      {/* The expanded list. Sits directly under the row it belongs to, so
-          the connection between the number and the tracks is never in
-          doubt — and collapses back to nothing, so the dashboard below it
-          stays where the DJ left it. */}
-      {openDef && (
-        <div
-          id="needs-attention-panel"
-          style={{
-            background: '#13131b',
-            border: '0.5px solid #ba751733',
-            borderRadius: '10px',
-            overflow: 'hidden',
-            marginBottom: '24px',
-          }}
-        >
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '12px',
-            padding: '12px 14px',
-            borderBottom: openTracks.length > 0 ? '0.5px solid #1e1e2a' : 'none',
-          }}>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: '12px', color: '#c0c0d8' }}>
-                {openTracks.length.toLocaleString()}{' '}
-                {openTracks.length === 1 ? 'track' : 'tracks'} {openDef.label.toLowerCase()}
-              </div>
-              <div style={{ fontSize: '11px', color: '#555', marginTop: '3px' }}>
-                {openDef.hint}
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => openBox(null)}
-              style={{
-                background: 'none',
-                border: '0.5px solid #252535',
-                borderRadius: '6px',
-                color: '#555',
-                fontSize: '11px',
-                cursor: 'pointer',
-                padding: '4px 10px',
-                fontFamily: 'inherit',
-                flexShrink: 0,
-              }}
-            >
-              Close
-            </button>
-          </div>
-
-          {/* Renders null until something is selected, so it costs no
-              vertical space on the way in. "Select all" deliberately takes
-              the WHOLE result rather than the rendered slice — the cap below
-              is a rendering budget, not a limit on what you can act on. */}
-          <BulkBar
-            selectedIds={selectedIds}
-            onClearSelect={() => {
-              setSelectedIds(new Set())
-              setAnchorId(null)
-            }}
-            onSelectAll={() => {
-              setSelectedIds(selectAll(openTracks.map((t) => t.id)))
-              setAnchorId(null)
-            }}
-            totalCount={openTracks.length}
-          />
-
-          {openTracks.length === 0 ? (
-            // Reachable: the panel stays open while analysis runs, so the
-            // last track leaving the list lands here rather than on a blank.
-            <div style={{ padding: '14px', fontSize: '12px', color: '#1d9e75' }}>
-              ✓ All done — nothing {openDef.label.toLowerCase()} any more.
-            </div>
-          ) : (
-            // Bounded and scrollable. Without the cap the panel would push
-            // the rest of the dashboard past the fold the moment it opened,
-            // which is the opposite of what a dashboard is for.
-            <div style={{ maxHeight: '420px', overflowY: 'auto', padding: '8px 10px' }}>
-              {shownTracks.map((track) => (
-                <TrackRow
-                  key={track.id}
-                  track={track}
-                  isSelected={selectedIds.has(track.id)}
-                  onSelected={handleSelect}
-                />
-              ))}
-            </div>
-          )}
-
-          {openTracks.length > PANEL_LIMIT && (
-            <div style={{
-              padding: '10px 14px',
-              borderTop: '0.5px solid #1e1e2a',
-              fontSize: '11px',
-              color: '#444',
-            }}>
-              Showing the first {PANEL_LIMIT} of {openTracks.length.toLocaleString()} —
-              {' '}Select all still takes every one.
-            </div>
-          )}
-        </div>
-      )}
+      {/* ── Row 2 — Crate health ─────────────────── */}
+      <HealthSection />
 
       {/* ── Row 3 — Tags ─────────────────────────── */}
       <div style={{

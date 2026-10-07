@@ -160,7 +160,7 @@ export function BulkEditModal({
   // Sending it to edit_tags.py produces `File not found: <path>` — a sidecar
   // error surfaced as a popup, for a track the DJ may not even have realised
   // was in the selection. The edit is still worth keeping: it is recorded in
-  // CrateCloud and will reach the file if it is ever relinked.
+  // DeepCrated and will reach the file if it is ever relinked.
   function collectFileWrite(
     writes: Map<number, FileWrite>,
     track: Track,
@@ -322,7 +322,7 @@ export function BulkEditModal({
         } else if (skipped > 0) {
           toast.warning(
             `${skipped} file${skipped === 1 ? '' : 's'} could not be written`,
-            { description: 'Not on disk. The change is saved in CrateCloud.' }
+            { description: 'Not on disk. The change is saved in DeepCrated.' }
           )
         }
       }
@@ -694,7 +694,7 @@ export function BulkEditModal({
               way it does on a row or a card — the checkbox is only about
               copying that stage onto the rest of the selection when you
               save. Deliberately not routed through applyToTrack: a stage is
-              CrateCloud's own workflow column, not a tag, and nothing about
+              DeepCrated's own workflow column, not a tag, and nothing about
               it belongs in the audio file. */}
           <FieldRow
             showCheckbox={isBulk}

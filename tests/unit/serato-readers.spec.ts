@@ -22,7 +22,7 @@ import { makeTempDir } from '../helpers/audio'
 let workDir: string
 
 test.beforeEach(() => {
-  workDir = makeTempDir('cratecloud-serato-read-')
+  workDir = makeTempDir('deepcrated-serato-read-')
 })
 
 test.afterEach(() => {

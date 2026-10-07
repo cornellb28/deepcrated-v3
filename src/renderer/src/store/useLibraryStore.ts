@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { readPref } from '../lib/prefs'
 
 // TODO: ImportProgressPayload/MoveProgressPayload/CopyProgressPayload are
 // each independently redefined in main/index.ts, preload/index.ts, and
@@ -165,19 +166,21 @@ export const useLibraryStore = create<LibraryState>((set) => ({
   viewModes: {},
   bpmRange: null,
   setBpmRange: (range) => set({ bpmRange: range }),
-  sidebarCollapsed: localStorage.getItem('cratecloud_sidebar_collapsed') === 'true',
-  displayMode: (localStorage.getItem('cratecloud_display_mode') as 'list' | 'grid') ?? 'list',
+  sidebarCollapsed:
+    readPref('deepcrated_sidebar_collapsed', 'cratecloud_sidebar_collapsed') === 'true',
+  displayMode:
+    (readPref('deepcrated_display_mode', 'cratecloud_display_mode') as 'list' | 'grid') ?? 'list',
 
   // ── Sidebar ────────────────────────────────────────────
 
   setSidebarCollapsed: (collapsed) => {
-    localStorage.setItem('cratecloud_sidebar_collapsed', String(collapsed))
+    localStorage.setItem('deepcrated_sidebar_collapsed', String(collapsed))
     set({ sidebarCollapsed: collapsed })
   },
   // ── Display mode ───────────────────────────────────────
 
   setDisplayMode: (mode) => {
-    localStorage.setItem('cratecloud_display_mode', mode)
+    localStorage.setItem('deepcrated_display_mode', mode)
     set({ displayMode: mode })
   },
 

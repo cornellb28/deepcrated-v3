@@ -10,7 +10,7 @@ import { createProbeSession, unwrap, type ProbeOp, type ProbeSession } from '../
 //   tracks.folder_id          ON DELETE SET NULL  → tracks SURVIVE, unfiled
 //
 // Getting these backwards would silently destroy a DJ's tagging work on a
-// "remove from CrateCloud" that promised to keep it.
+// "remove from DeepCrated" that promised to keep it.
 
 test.skip(!hasElectron(), 'electron/esbuild not installed')
 
@@ -82,7 +82,7 @@ test('the seed lays out the folder tree the rest of this spec assumes', async ()
   expect(folders.map((f) => f.name)).toContain('Deep')
 })
 
-test('removing from CrateCloud keeps the tracks, their tags and their crates', async () => {
+test('removing from DeepCrated keeps the tracks, their tags and their crates', async () => {
   const results = await run([
     ...seed(),
     // id 2 is House — the subfolder, not the root row.

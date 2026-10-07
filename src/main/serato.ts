@@ -131,7 +131,7 @@ async function resolveOutputPath(
 ): Promise<string> {
   const primary = join(dir, `${baseName}.crate`)
   if (overwriteExisting || !existsSync(primary)) return primary
-  return join(dir, `${baseName} (CrateCloud).crate`)
+  return join(dir, `${baseName} (DeepCrated).crate`)
 }
 
 // ── Is Serato running? ────────────────────────────────────────────────────

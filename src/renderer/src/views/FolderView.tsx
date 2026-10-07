@@ -305,12 +305,12 @@ export function FolderView({ libraryRoots, onRootsChanged }: FolderViewProps): R
 
       if (choice === 'trash') {
         toast.success(`Moved “${target.name}” to the Trash`, {
-          description: `${result.tracks ?? 0} track${result.tracks === 1 ? '' : 's'} removed from CrateCloud. Recoverable from Finder.`
+          description: `${result.tracks ?? 0} track${result.tracks === 1 ? '' : 's'} removed from DeepCrated. Recoverable from Finder.`
         })
         // Track rows went with it, so the shared slice is stale.
         setTracks(await window.api.db.allTracks())
       } else {
-        toast.success(`Removed “${target.name}” from CrateCloud`, {
+        toast.success(`Removed “${target.name}” from DeepCrated`, {
           description: 'Your files are untouched. The tracks are still in your library.'
         })
         setTracks(await window.api.db.allTracks())

@@ -8,7 +8,7 @@ import {
   pendingExpectationCount
 } from '../../src/main/expectedChanges'
 
-// The hook that stops the watcher treating CrateCloud's own moves as a DJ
+// The hook that stops the watcher treating DeepCrated's own moves as a DJ
 // reorganising files in Finder. The risk it covers is asymmetric: suppressing
 // too little is noise in the review queue, suppressing too much silently
 // swallows a real deletion.

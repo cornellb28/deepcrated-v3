@@ -53,6 +53,10 @@ declare global {
         swept?: number
       }>
 
+      health: {
+        summary: () => Promise<HealthSummary>
+        queue: (checkId: HealthCheckId) => Promise<number[]>
+      }
       auth: {
         state: () => Promise<AuthState>
         signIn: () => Promise<{ ok: boolean; state: AuthState; error?: string }>
@@ -136,7 +140,13 @@ declare global {
       // the tracks it never reached still have analyzed_at null, so the
       // next run resumes from there.
       onAnalysisComplete: (
-        cb: (data: { analyzed: number; total: number; stopped?: boolean }) => void
+        cb: (data: { analyzed: number; total: number; stopped?: boolean; issues?: number }) => void
+      ) => void
+
+      // A track whose file analysis found bad (cut off, damaged, undecodable,
+      // timed out). Already recorded in the database; this keeps the store in step.
+      onTrackAnalysisIssue: (
+        cb: (data: { trackId: number; issue: AnalysisIssue }) => void
       ) => void
 
       onAnalyzeFileProgress: (cb: (p: AnalyzeFileProgressPayload) => void) => void
@@ -165,7 +175,7 @@ declare global {
         tracksByBoardId: (id: number, boardId: number) => Promise<Track[]>
         markMissing: (filepath: string) => Promise<{ ok: boolean; error?: string }>
         // deleteFile: true also moves the audio file to the OS Trash before
-        // the DB row is dropped; false removes only the CrateCloud entry.
+        // the DB row is dropped; false removes only the DeepCrated entry.
         deleteTrack: (id: number, deleteFile: boolean) => Promise<{ ok: boolean; error?: string }>
         markAnalyzed: (id: number) => Promise<{ ok: boolean; error?: string }>
         tracksByFolder: (folderId: number, recursive: boolean) => Promise<Track[]>
@@ -298,6 +308,45 @@ declare global {
         delete: (key: string) => Promise<{ ok: boolean; error?: string }>
       }
 
+      artist: {
+        suggestions: () => Promise<{ groups: ArtistSuggestionGroup[]; mode: 'off' | 'auto' | 'suggest' }>
+        accept: (raw: string) => Promise<ArtistApplyResult>
+        edit: (raw: string, name: string) => Promise<ArtistApplyResult>
+        keep: (raw: string) => Promise<{ ok: boolean; result?: { kept: number }; error?: string }>
+        restoreOriginal: (trackId: number) => Promise<{ ok: boolean; error?: string }>
+        recleanPreview: () => Promise<{ ok: boolean; result?: ArtistRecleanPreview; error?: string }>
+        recleanApproveHigh: () => Promise<ArtistApplyResult>
+        recleanQueueReview: () => Promise<{ ok: boolean; result?: { tracks: number }; error?: string }>
+        undo: () => Promise<ArtistApplyResult>
+        undoInfo: () => Promise<{ available: boolean; tracks: number }>
+        onChanged: (cb: (p: { trackIds: number[] }) => void) => void
+        onNotice: (cb: (p: { message: string }) => void) => void
+        onProgress: (cb: (p: ArtistCleanProgress) => void) => void
+        offEvents: () => void
+      }
+
+      identity: {
+        getStatus: () => Promise<IdentityStatus>
+        kick: () => Promise<{ ok: boolean }>
+        onProgress: (cb: (s: IdentityStatus) => void) => void
+        offProgress: () => void
+      }
+
+      privacy: {
+        getConsent: () => Promise<ConsentState>
+        setConsent: (
+          enabled: boolean
+        ) => Promise<{ ok: boolean; state?: ConsentState; error?: string }>
+        setTrackPrivate: (
+          trackIds: number[],
+          value: boolean
+        ) => Promise<{ ok: boolean; error?: string }>
+        setCratePrivate: (
+          crateId: number,
+          value: boolean
+        ) => Promise<{ ok: boolean; error?: string }>
+      }
+
       fs: {
         // Job-based — see MoveJob/runMoveJob in main/index.ts. Both resolve
         // immediately with a jobId; progress comes over onMoveProgress.
@@ -419,8 +468,36 @@ declare global {
 
   // ─── Shared types ─────────────────────────────────────────
 
+  type HealthCheckId =
+    | 'missing_artwork'
+    | 'missing_key'
+    | 'missing_bpm'
+    | 'missing_genre'
+    | 'missing_artist'
+    | 'no_tags'
+    | 'duplicates'
+    | 'inconsistent_artist'
+    | 'unreadable_audio'
+    | 'missing_file'
+
+  interface HealthSummary {
+    liveTracks: number
+    flaggedTracks: number
+    checks: {
+      id: HealthCheckId
+      label: string
+      hint: string
+      count: number
+      fixActions: { id: string; label: string }[]
+    }[]
+  }
+
   interface Track {
     id: number
+    // 1 when marked "Keep private" (excluded from anonymous stats)
+    stats_private?: number
+    // The artist string as first imported, before any cleanup.
+    artist_raw?: string | null
     filepath: string
     filename: string | null
     title: string | null
@@ -460,6 +537,8 @@ declare global {
     folder_id: number | null
     client_uuid: string | null
     partial_hash: string | null
+    // What analysis concluded about the file itself; null = nothing wrong.
+    analysis_error: AnalysisIssue | null
   }
 
   interface FolderRow {
@@ -497,8 +576,66 @@ declare global {
     created_at: number
   }
 
+  type ArtistConfidence = 'high' | 'medium' | 'low'
+
+  interface ArtistSuggestionGroup {
+    raw: string
+    suggested: string
+    confidence: ArtistConfidence
+    reason: string
+    trackCount: number
+  }
+
+  interface ArtistApplyResult {
+    ok: boolean
+    result?: { applied: number; failed: { trackId: number; error: string }[]; stale: number }
+    error?: string
+  }
+
+  interface ArtistRecleanPreview {
+    groups: {
+      canonical: string
+      tier: ArtistConfidence
+      trackCount: number
+      items: { raw: string; reason: string; trackIds: number[] }[]
+    }[]
+    distinctNames: number
+    tracksAffected: number
+    byTier: Record<ArtistConfidence, number>
+  }
+
+  interface ArtistCleanProgress {
+    phase: 'preview' | 'apply' | 'undo' | 'idle'
+    done: number
+    total: number
+  }
+
+  interface IdentityStatus {
+    active: boolean
+    phase: 'tags' | 'fingerprint' | 'lookup' | 'idle'
+    progress: {
+      total: number
+      tagsPending: number
+      fingerprintPending: number
+      lookupPending: number
+    }
+    // An AcoustID key and MusicBrainz contact are configured.
+    lookupAvailable: boolean
+    fingerprintAvailable: boolean
+  }
+
+  interface ConsentState {
+    enabled: boolean
+    textVersion: number | null
+    // epoch ms of the latest consent change
+    changedAt: number | null
+    currentTextVersion: number
+  }
+
   interface Crate {
     id: number
+    // 1 when marked "Keep private" (excluded from anonymous stats)
+    stats_private?: number
     name: string
     color: string
     parent_crate_id: number | null
@@ -515,6 +652,8 @@ declare global {
     position: number
     created_at: number
   }
+
+  type AnalysisIssue = 'decode_failed' | 'truncated' | 'damaged' | 'timeout'
 
   interface AnalysisResult {
     success: boolean
@@ -543,6 +682,11 @@ declare global {
     // Phase 2 result (BPM/key only) leaves them undefined.
     file_size_bytes?: number | null
     client_uuid?: string | null
+    // Raw identity tags from the fast read; main validates them.
+    isrc?: string | null
+    musicbrainz_recording_id?: string | null
+    // What this run says about the FILE; null/absent = nothing wrong.
+    analysis_issue?: AnalysisIssue | null
   }
 
   interface Entitlement {

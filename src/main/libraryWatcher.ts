@@ -133,7 +133,7 @@ export function startWatcher(rootId: number, rootPath: string): void {
   watcher.on('add', async (filepath) => {
     if (!isAudio(filepath)) return
 
-    // The landing half of a move CrateCloud made itself (see
+    // The landing half of a move DeepCrated made itself (see
     // expectedChanges.ts). The engine has already repointed the row and the
     // DJ asked for it, so there is nothing to import and nothing to review —
     // queueing a pending_changes row here would ask them to confirm their own
@@ -163,7 +163,7 @@ export function startWatcher(rootId: number, rootPath: string): void {
   watcher.on('unlink', async (filepath) => {
     if (!isAudio(filepath)) return
 
-    // The departing half of a move CrateCloud made itself. Returning here
+    // The departing half of a move DeepCrated made itself. Returning here
     // keeps it out of recentlyUnlinked, which matters most on the collision
     // path: a file renamed to "Track (2).mp3" no longer matches
     // findMoveCandidate's same-filename rule, so without this it would fall
@@ -197,7 +197,7 @@ export function startWatcher(rootId: number, rootPath: string): void {
   watcher.on('addDir', (dirpath) => {
     if (dirpath === rootPath) return // the watched root itself, not a new folder
 
-    // The landing half of a rename CrateCloud performed. The folder row was
+    // The landing half of a rename DeepCrated performed. The folder row was
     // already repointed at this path, so ensureFolderTree would be a no-op —
     // but consuming the expectation keeps the pair balanced with the unlink
     // below, which is the half that actually matters.
@@ -217,7 +217,7 @@ export function startWatcher(rootId: number, rootPath: string): void {
   watcher.on('unlinkDir', (dirpath) => {
     if (dirpath === rootPath) return
 
-    // The departing half of a rename CrateCloud performed. Without this,
+    // The departing half of a rename DeepCrated performed. Without this,
     // onDirRemoved would look the OLD path up and — if the lookup happened
     // to still resolve — call markFolderMissing, which marks the folder AND
     // every track under it missing. A rename would look like a deletion.

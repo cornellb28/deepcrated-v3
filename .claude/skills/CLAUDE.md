@@ -1,4 +1,4 @@
-# DeepCrate desktop (cratecloud-v3)
+# DeepCrate desktop (deepcrated-v3)
 
 ## Always
 - Inspect before changing. No new dependencies without my approval.

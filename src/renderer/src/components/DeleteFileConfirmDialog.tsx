@@ -68,8 +68,8 @@ export function DeleteFileConfirmDialog({
             lineHeight: 1.5
           }}
         >
-          &ldquo;{trackTitle}&rdquo; will be moved to the Trash and removed from CrateCloud. This
-          can&apos;t be undone from within CrateCloud.
+          &ldquo;{trackTitle}&rdquo; will be moved to the Trash and removed from DeepCrated. This
+          can&apos;t be undone from within DeepCrated.
         </div>
 
         {/* Buttons */}

@@ -21,9 +21,16 @@ interface TagPageViewProps {
   tags: Tag[]
   onChange: (tags: Tag[]) => void
   onBack: () => void
+  // Defaults to the Tags Cloud wording; Browse passes its own.
+  backLabel?: string
 }
 
-export function TagPageView({ tags, onChange, onBack }: TagPageViewProps): React.JSX.Element {
+export function TagPageView({
+  tags,
+  onChange,
+  onBack,
+  backLabel = '← All tags'
+}: TagPageViewProps): React.JSX.Element {
   const { tracks, trackTags, displayMode } = useLibraryStore()
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
 
@@ -89,7 +96,7 @@ export function TagPageView({ tags, onChange, onBack }: TagPageViewProps): React
             fontFamily: 'inherit'
           }}
         >
-          ← All tags
+          {backLabel}
         </button>
 
         <span style={{ fontSize: '13px', color: '#e8e8f0' }}>

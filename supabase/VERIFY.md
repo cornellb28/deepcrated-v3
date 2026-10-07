@@ -4,7 +4,7 @@ Everything here needs your Supabase project, your Google Cloud console and a
 real browser, so none of it could be done from the coding session — it was
 written unverified against a live project and is waiting on this checklist.
 
-Automated coverage that *did* run: 12 unit tests on the `cratecloud://`
+Automated coverage that *did* run: 12 unit tests on the `deepcrated://`
 callback parser, 7 integration tests on safeStorage persistence (real
 keychain, real process exit), and a production build confirming the
 `MAIN_VITE_` values inline correctly. See the bottom of this file.
@@ -216,9 +216,9 @@ Must match exactly — no trailing slash, no `http`. Google rejects a
 near-miss with `redirect_uri_mismatch` rather than anything more helpful.
 
 Note this is the *Supabase* callback, going into *Google's* console. It is
-not `cratecloud://auth-callback`, and the two are not interchangeable:
+not `deepcrated://auth-callback`, and the two are not interchangeable:
 Google hands the user to Supabase at the URL above, and Supabase then hands
-them to the app at the `cratecloud://` one below. Nothing in the repo
+them to the app at the `deepcrated://` one below. Nothing in the repo
 references this URL — it is dashboard config only.
 
 **Supabase** > Authentication > Providers > Google: enable it, paste the
@@ -226,8 +226,11 @@ client ID + secret. Then Authentication > URL Configuration > **Redirect
 URLs**, add:
 
 ```
-cratecloud://auth-callback
+deepcrated://auth-callback
 ```
+
+Keep `cratecloud://auth-callback` in the list as well until the website
+builds `deepcrated://` links; the app accepts both during the transition.
 
 That last one is the step most likely to be missed — without it Supabase
 refuses the redirect and the browser dead-ends instead of returning.
@@ -260,7 +263,7 @@ shorter than a spinner would be worth.
 **Check the encrypted blob exists:**
 
 ```bash
-ls -la ~/Library/Application\ Support/cratecloud-v3/cratecloud/session.enc
+ls -la ~/Library/Application\ Support/DeepCrated/cratecloud/session.enc
 ```
 
 It should be unreadable ciphertext — `cat` it and you should see binary, not
@@ -335,4 +338,4 @@ one on every use, so the newest must overwrite).
 What they cannot cover, and section 2–4 above exist for: that your project's
 RLS policy behaves against two real accounts, that the Google redirect is
 configured on both sides, and that the OS actually delivers
-`cratecloud://` to the app.
+`deepcrated://` to the app.

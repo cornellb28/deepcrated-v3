@@ -1,6 +1,14 @@
 import React, { useState } from 'react'
 import { toast } from 'sonner'
-import { ChevronRight, Plus, MoreVertical, Pencil, Trash2, UploadCloud } from 'lucide-react'
+import {
+  ChevronRight,
+  Plus,
+  MoreVertical,
+  Pencil,
+  Trash2,
+  UploadCloud,
+  EyeOff
+} from 'lucide-react'
 import { useLibraryStore } from '../store/useLibraryStore'
 import { DeleteCrateConfirmDialog } from './DeleteCrateConfirmDialog'
 import { SeratoRunningConfirmDialog } from './SeratoRunningConfirmDialog'
@@ -8,7 +16,7 @@ import { SeratoRunningConfirmDialog } from './SeratoRunningConfirmDialog'
 // The kanban board view is gone — the status columns it showed are now
 // tabs in the track tab bar (see lib/tabs.ts), built from the same boards
 // rows. Boards remain the status system; only the view was removed.
-type View = 'dashboard' | 'library' | 'tags' | 'folders' | 'crates' | 'settings'
+type View = 'dashboard' | 'library' | 'browse' | 'tags' | 'folders' | 'crates' | 'settings'
 
 interface SidebarProps {
   activeView: View
@@ -150,7 +158,7 @@ export function Sidebar({
               margin: 0
             }}
           >
-            CrateCloud
+            DeepCrated
           </p>
         )}
         <button
@@ -176,6 +184,7 @@ export function Sidebar({
 
       {navItem('dashboard', 'Overview', '◉')}
       {navItem('library', 'All tracks', '♫', tracks.length)}
+      {navItem('browse', 'Browse all', '▦')}
       {navItem('tags', 'Tags Cloud', '♪')}
       {navItem('folders', 'Folders', '⊟')}
 
@@ -291,6 +300,22 @@ function CratesSection({
       onSelectCrate(result.id)
     } else {
       toast.error('Could not create crate', { description: result.error })
+    }
+  }
+
+  // Marking a crate private also covers every crate nested under it.
+  async function handleTogglePrivate(crate: Crate): Promise<void> {
+    const next = crate.stats_private !== 1
+    const result = await window.api.privacy.setCratePrivate(crate.id, next)
+    if (result.ok) {
+      patchCrateLocally(crate.id, { stats_private: next ? 1 : 0 })
+      toast.success(
+        next
+          ? `"${crate.name}" and its sub-crates are excluded from anonymous stats`
+          : `"${crate.name}" is no longer kept private`
+      )
+    } else {
+      toast.error('Could not change privacy', { description: result.error })
     }
   }
 
@@ -477,6 +502,11 @@ function CratesSection({
                       setOpenMenuId(null)
                       setDeleteTarget(node)
                     }}
+                    isPrivate={node.stats_private === 1}
+                    onTogglePrivate={() => {
+                      setOpenMenuId(null)
+                      void handleTogglePrivate(node)
+                    }}
                     onClose={() => setOpenMenuId(null)}
                   />
                 )}
@@ -650,10 +680,14 @@ function CratesSection({
 function CrateRowMenu({
   onRename,
   onDelete,
+  isPrivate,
+  onTogglePrivate,
   onClose
 }: {
   onRename: () => void
   onDelete: () => void
+  isPrivate: boolean
+  onTogglePrivate: () => void
   onClose: () => void
 }): React.JSX.Element {
   const ref = React.useRef<HTMLDivElement>(null)
@@ -707,6 +741,16 @@ function CrateRowMenu({
       >
         <Pencil size={12} />
         Rename
+      </button>
+      <button
+        data-testid="crate-menu-private"
+        onClick={onTogglePrivate}
+        style={itemStyle}
+        onMouseEnter={(e) => (e.currentTarget.style.background = '#252535')}
+        onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+      >
+        <EyeOff size={12} />
+        {isPrivate ? 'Keep private ✓' : 'Keep private'}
       </button>
       <button
         data-testid="crate-menu-delete"

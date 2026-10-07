@@ -12,12 +12,12 @@ import { hasElectron, hasSidecarVenv } from '../helpers/paths'
 import { createProbeSession, unwrap, type ProbeOp, type ProbeSession } from '../helpers/probe'
 
 // ── What this file is for ─────────────────────────────────────────────────
-// A CrateCloud edit has to land in two places to be worth anything: the
+// A DeepCrated edit has to land in two places to be worth anything: the
 // SQLite row (so the app still shows it next launch) and the audio file's
 // own tags (so anything else — Serato, Rekordbox, Finder — can ever see
 // it). These specs drive the real main-process modules and then check both
 // sides, because a write that only reaches one of them looks completely
-// fine inside CrateCloud and is invisible everywhere else.
+// fine inside DeepCrated and is invisible everywhere else.
 //
 // The renderer is not involved. Every sequence below mirrors what
 // Inspector.saveField / BulkEditModal.handleSave actually send over IPC:
@@ -31,7 +31,7 @@ let workDir: string
 let probe: ProbeSession
 
 test.beforeEach(() => {
-  workDir = makeTempDir('cratecloud-sync-')
+  workDir = makeTempDir('deepcrated-sync-')
   probe = createProbeSession()
 })
 

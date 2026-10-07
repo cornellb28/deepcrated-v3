@@ -29,7 +29,7 @@ export function hasFfmpeg(): boolean {
   }
 }
 
-export function makeTempDir(prefix = 'cratecloud-test-'): string {
+export function makeTempDir(prefix = 'deepcrated-test-'): string {
   return mkdtempSync(join(tmpdir(), prefix))
 }
 
@@ -64,7 +64,7 @@ const templates = new Map<AudioExt, string>()
 let templateDir: string | null = null
 
 export function freshAudio(dir: string, ext: AudioExt, name = 'track'): string {
-  if (!templateDir) templateDir = makeTempDir('cratecloud-templates-')
+  if (!templateDir) templateDir = makeTempDir('deepcrated-templates-')
   let template = templates.get(ext)
   if (!template || !existsSync(template)) {
     template = makeSilentAudio(templateDir, ext, `template-${ext}`)

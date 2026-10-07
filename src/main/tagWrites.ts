@@ -47,14 +47,14 @@ export function queueTagWrite<T>(filepath: string, task: () => Promise<T>): Prom
 }
 
 // ── CRATECLOUD_ID conflicts ───────────────────────────────────────────────
-// A file can already carry a CRATECLOUD_ID from a different CrateCloud
+// A file can already carry a CRATECLOUD_ID from a different DeepCrated
 // library — a copied track, or a re-import that minted a fresh client_uuid.
 // edit_tags.py refuses the whole write in that case, which would throw away
 // the metadata edit the user actually asked for over an identity mismatch
 // they never asked about. Retry once without the identity field so the edit
 // still lands; the file keeps the id it already had.
 //
-// TODO(cratecloud): decide whether the row should adopt result.existing as
+// TODO(deepcrated): decide whether the row should adopt result.existing as
 // its client_uuid instead. It cannot just be copied across —
 // idx_tracks_client_uuid is unique, so another row may already hold that id.
 export function withoutCratecloudId(meta: EditTagsMeta): EditTagsMeta {

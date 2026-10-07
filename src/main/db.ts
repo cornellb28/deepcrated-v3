@@ -6,6 +6,19 @@ import { isTagBackedField, joinValues as joinTagValues, normalizeTagValue } from
 import { tmpdir } from 'os'
 import { EventEmitter } from 'events'
 import { randomUUID } from 'crypto'
+import { createSqliteStatsStore } from './stats/sqliteStore'
+import { createSqliteIdentityStore, refreshCanonicalTrackId } from './identity/sqliteStore'
+import type { IdentityStore } from './identity/types'
+import { normalizeIsrc, normalizeMbid } from './identity/canonical'
+import { createSqliteArtistStore } from './artist/sqliteStore'
+import type { ArtistStore } from './artist/types'
+import type { StatsStore } from './stats/types'
+import {
+  getHealthSummary as computeHealthSummary,
+  getHealthQueue as computeHealthQueue,
+  type HealthCheckId,
+  type HealthSummary
+} from './health/checks'
 
 // Fires 'changed' whenever ensureFolderTree actually inserts a new folder
 // row — import, the watcher, fs:create-folder, and a track move all funnel
@@ -16,8 +29,9 @@ export const folderEvents = new EventEmitter()
 
 // ─── Setup ───────────────────────────────────────────────
 // SQLite lives in the user's app data folder — never in
-// the project folder. On Mac: ~/Library/Application Support/cratecloud/
-// On Windows: C:\Users\Name\AppData\Roaming\cratecloud\
+// the project folder. The parent is Electron's userData, named after the app:
+// on Mac ~/Library/Application Support/DeepCrated/, on Windows
+// C:\Users\Name\AppData\Roaming\DeepCrated\.
 
 // Tests run against a throwaway userData dir so they never read or write
 // the developer's real library, and so every run starts from a clean DB.
@@ -26,11 +40,14 @@ export const folderEvents = new EventEmitter()
 // need to share one DB across a single `playwright test` invocation while
 // still starting clean on the next invocation.
 if (process.env.NODE_ENV === 'test') {
-  app.setPath('userData', join(tmpdir(), `cratecloud-test-${process.ppid}`))
+  app.setPath('userData', join(tmpdir(), `deepcrated-test-${process.ppid}`))
 }
 
 // gives access to system paths (like "where should this app store its data").
-const dbDir = join(app.getPath('userData'), 'cratecloud') // It appends a cratecloud subfolder to that path.
+// The inner 'cratecloud' folder keeps its pre-rename name on purpose: it holds
+// the library, artwork and session, and renaming it would orphan them for no
+// user-visible gain. authStore.ts and artwork.ts use the same literal.
+const dbDir = join(app.getPath('userData'), 'cratecloud')
 mkdirSync(dbDir, { recursive: true }) // mkdirSync(..., { recursive: true }) creates that folder if it doesn't exist yet — recursive: true means it won't throw an error if the folder is already there, and it'll create any missing parent folders too.
 
 const dbPath = join(dbDir, 'library.db')
@@ -50,7 +67,7 @@ db.exec(`
   -- Core table. Every audio file gets one row.
   -- Two kinds of columns:
   --   Mirror columns  → copied from the file's ID3 tags
-  --   App-only columns → only exist in CrateCloud
+  --   App-only columns → only exist in DeepCrated
   -- ─────────────────────────────────────────────────────
 
   CREATE TABLE IF NOT EXISTS tracks (
@@ -89,6 +106,11 @@ db.exec(`
     artwork_hash  TEXT,
     client_uuid   TEXT,
     partial_hash  TEXT,
+
+    -- Set when analysis found the FILE itself bad (decode_failed, truncated,
+    -- damaged, timeout — see analysisIssue.ts); NULL = nothing wrong. A
+    -- non-null value also takes the track out of bulk analysis.
+    analysis_error TEXT,
 
     -- App-only columns (never written to ID3 tags)
     board_id      INTEGER NOT NULL DEFAULT 1 REFERENCES boards(id),
@@ -344,6 +366,14 @@ if (!hasPartialHash) {
   db.exec(`ALTER TABLE tracks ADD COLUMN partial_hash TEXT`)
 }
 
+// What analysis concluded about the file itself (see analysisIssue.ts).
+// Nullable, no default, no index: it is read only by the unanalyzed-tracks
+// query (alongside analyzed_at) and by Crate Health's unreadable-audio check.
+const hasAnalysisError = trackColumns.some((c) => c.name === 'analysis_error')
+if (!hasAnalysisError) {
+  db.exec(`ALTER TABLE tracks ADD COLUMN analysis_error TEXT`)
+}
+
 // file_size_bytes replaces file_size_mb, which every fast-tag-read call
 // computed and then silently dropped (buildTrackData never read it) —
 // dead since the column was added. Exact bytes instead of a rounded MB
@@ -561,6 +591,138 @@ db.exec(`
     ON pending_changes(root_id);
 `)
 
+// ─── Anonymous stats (opt-in) ────────────────────────────────────────────────
+// stats_private: "Keep private" on a track or crate. Anything flagged, or
+// inside a flagged crate, is never queued or uploaded (stats/consent.ts).
+// Added rather than created, since a real install already has both tables.
+if (!(db.prepare(`PRAGMA table_info(tracks)`).all() as { name: string }[])
+  .some((c) => c.name === 'stats_private')) {
+  db.exec(`ALTER TABLE tracks ADD COLUMN stats_private INTEGER NOT NULL DEFAULT 0`)
+}
+if (!(db.prepare(`PRAGMA table_info(crates)`).all() as { name: string }[])
+  .some((c) => c.name === 'stats_private')) {
+  db.exec(`ALTER TABLE crates ADD COLUMN stats_private INTEGER NOT NULL DEFAULT 0`)
+}
+
+db.exec(`
+  -- Append-only record of consent given/withdrawn, with the version of the
+  -- consent text the user saw. The newest row is the current state.
+  CREATE TABLE IF NOT EXISTS consent_events (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    action       TEXT    NOT NULL CHECK (action IN ('granted','withdrawn','expired')),
+    text_version INTEGER NOT NULL,
+    at           INTEGER NOT NULL
+  );
+
+  -- Events waiting to upload. created_at is floored to the hour. track_id and
+  -- crate_id are local-only (never uploaded) so that marking something
+  -- private can purge what is already queued for it.
+  CREATE TABLE IF NOT EXISTS stats_queue (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    anon_install_id TEXT    NOT NULL,
+    event_type      TEXT    NOT NULL,
+    payload         TEXT    NOT NULL,
+    app_version     TEXT    NOT NULL,
+    created_at      TEXT    NOT NULL,
+    attempts        INTEGER NOT NULL DEFAULT 0,
+    next_attempt_at INTEGER NOT NULL DEFAULT 0,
+    track_id        INTEGER REFERENCES tracks(id) ON DELETE SET NULL,
+    crate_id        INTEGER REFERENCES crates(id) ON DELETE SET NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_stats_queue_due ON stats_queue(next_attempt_at, created_at);
+`)
+
+// ─── Artist-name cleanup ─────────────────────────────────────────────────────
+// tracks.artist_raw holds the artist string as first imported, set once and
+// never overwritten, so "keep original" is always possible (artist/service.ts).
+if (!(db.prepare(`PRAGMA table_info(tracks)`).all() as { name: string }[])
+  .some((c) => c.name === 'artist_raw')) {
+  db.exec(`ALTER TABLE tracks ADD COLUMN artist_raw TEXT`)
+}
+db.exec(`
+  -- Raw artist strings the DJ chose to keep exactly as they are. Matched on
+  -- the exact string, so a kept spelling is never flagged again.
+  CREATE TABLE IF NOT EXISTS artist_keep_rules (
+    raw        TEXT PRIMARY KEY,
+    created_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+  );
+
+  -- The triage inbox: "Change <raw> to <suggested>?". One row per track and
+  -- raw name; a resolved row stays resolved, so the same question is not
+  -- asked twice.
+  CREATE TABLE IF NOT EXISTS artist_suggestions (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    track_id   INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+    raw        TEXT    NOT NULL,
+    suggested  TEXT    NOT NULL,
+    confidence TEXT    NOT NULL CHECK (confidence IN ('high','medium','low')),
+    reason     TEXT    NOT NULL,
+    status     TEXT    NOT NULL DEFAULT 'pending'
+               CHECK (status IN ('pending','accepted','kept','edited','dismissed')),
+    created_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+    UNIQUE (track_id, raw)
+  );
+  CREATE INDEX IF NOT EXISTS idx_artist_suggestions_status ON artist_suggestions(status, raw);
+
+  -- One level of undo for the last "approve all" batch: what each track looked
+  -- like before. A new batch replaces it.
+  CREATE TABLE IF NOT EXISTS artist_clean_journal (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    batch_id     TEXT    NOT NULL,
+    track_id     INTEGER NOT NULL,
+    prev_column  TEXT,
+    prev_tags    TEXT    NOT NULL,
+    file_written INTEGER NOT NULL DEFAULT 0
+  );
+`)
+
+// ─── Track identity (shareable ids) ──────────────────────────────────────────
+// A track's local id and filepath mean nothing off this machine. These
+// columns hold public recording identifiers instead, and canonical_track_id
+// is the one value stats may carry (see identity/canonical.ts).
+//   isrc / musicbrainz_recording_id  read from the file's tags (or, for the
+//                                    recording id, resolved by lookup)
+//   acoustid_fingerprint             Chromaprint fingerprint, kept locally
+//   fingerprint_hash                 hash of it; the only form that can be
+//                                    part of an id
+//   fingerprint_status               NULL = not yet tried, 'done', 'failed'
+//   identity_tags_read               0 until this track's tags were read for
+//                                    identity; the backfill's work list
+// Added rather than created: a real install already has the table.
+const identityColumns: [string, string][] = [
+  ['isrc', 'TEXT'],
+  ['musicbrainz_recording_id', 'TEXT'],
+  ['acoustid_fingerprint', 'TEXT'],
+  ['fingerprint_duration', 'INTEGER'],
+  ['fingerprint_hash', 'TEXT'],
+  ['canonical_track_id', 'TEXT'],
+  ['fingerprint_status', 'TEXT'],
+  ['identity_tags_read', 'INTEGER NOT NULL DEFAULT 0']
+]
+{
+  const have = new Set(
+    (db.prepare(`PRAGMA table_info(tracks)`).all() as { name: string }[]).map((c) => c.name)
+  )
+  for (const [name, type] of identityColumns) {
+    if (!have.has(name)) db.exec(`ALTER TABLE tracks ADD COLUMN ${name} ${type}`)
+  }
+}
+db.exec(`
+  CREATE INDEX IF NOT EXISTS idx_tracks_canonical_id ON tracks(canonical_track_id);
+  CREATE INDEX IF NOT EXISTS idx_tracks_identity_tags ON tracks(identity_tags_read);
+
+  -- Results of fingerprint -> recording lookups, keyed by fingerprint hash so
+  -- the same audio is never looked up twice. Negative results are cached too
+  -- (and retried after a month) so an unknown track is not re-asked on every
+  -- run. Local only.
+  CREATE TABLE IF NOT EXISTS identity_lookup_cache (
+    fingerprint_hash TEXT PRIMARY KEY,
+    recording_id     TEXT,
+    status           TEXT    NOT NULL CHECK (status IN ('match','none','ambiguous')),
+    looked_up_at     INTEGER NOT NULL
+  );
+`)
+
 // ─── Prepared statements/Queries ─────────────────────────────────────────────
 // Prepared statements are compiled once and run fast
 // Think of them as saved SQL commands ready to fire
@@ -575,7 +737,7 @@ const stmts = {
       bpm, key_camelot, key_full, camelot, openkey,
       duration_sec, duration_str, file_size_bytes, format,
       artwork_path, analyzed_at, board_id, folder_id, client_uuid, partial_hash,
-      last_modified
+      last_modified, isrc, musicbrainz_recording_id, identity_tags_read
      )
       VALUES (
        @filepath, @filename, @title, @artist, @album, @genre,
@@ -583,7 +745,7 @@ const stmts = {
        @bpm, @key_camelot, @key_full, @camelot, @openkey,
        @duration_sec, @duration_str, @file_size_bytes, @format,
        @artwork_path, @analyzed_at, @board_id, @folder_id, @client_uuid, @partial_hash,
-       @last_modified
+       @last_modified, @isrc, @musicbrainz_recording_id, @identity_tags_read
       )
        ON CONFLICT(filepath) DO UPDATE SET
          title           = excluded.title,
@@ -612,7 +774,12 @@ const stmts = {
          -- Never clobber a stable id with a fresh mint — same COALESCE
          -- reasoning as folder_id just above.
          client_uuid     = COALESCE(client_uuid, excluded.client_uuid),
-         partial_hash    = excluded.partial_hash
+         partial_hash    = excluded.partial_hash,
+         -- A re-read tag can add or change an id but a caller that did not
+         -- read tags (null) must never blank one an earlier scan found.
+         isrc            = COALESCE(excluded.isrc, isrc),
+         musicbrainz_recording_id = COALESCE(excluded.musicbrainz_recording_id, musicbrainz_recording_id),
+         identity_tags_read = MAX(identity_tags_read, excluded.identity_tags_read)
     `),
   // COALESCE, not a plain overwrite: importSingleFile always inserts with
   // folder_id null (it doesn't resolve a root), so a plain `= excluded.
@@ -634,6 +801,7 @@ const stmts = {
   getUnanalyzedTracks: db.prepare(`
   SELECT id, filepath FROM tracks
   WHERE analyzed_at IS NULL
+  AND analysis_error IS NULL
   AND (missing = 0 OR missing IS NULL)
   ORDER BY added_at ASC
 `),
@@ -971,7 +1139,14 @@ export function insertTrack(
     // already has a row.
     client_uuid: track.client_uuid ?? randomUUID(),
     partial_hash: track.partial_hash ?? null,
-    last_modified: track.last_modified ?? null
+    last_modified: track.last_modified ?? null,
+    // Raw tag values; the store validates before they can become an id. A
+    // caller that read tags passes the keys (null when the file has none),
+    // which is what marks identity as read — a caller that did not (the
+    // renderer's db:insert-track) leaves it for the backfill.
+    isrc: normalizeIsrc(track.isrc),
+    musicbrainz_recording_id: normalizeMbid(track.musicbrainz_recording_id),
+    identity_tags_read: 'isrc' in track || 'musicbrainz_recording_id' in track ? 1 : 0
   }
   const result = stmts.insertTrack.run(safe)
 
@@ -992,6 +1167,10 @@ export function insertTrack(
   // never treat a re-scanned, already-existing track as "freshly inserted."
   const wasInserted =
     existing !== undefined && Number(result.lastInsertRowid) === existing.id
+
+  // An ISRC or recording id may have just been added or changed by this
+  // insert or re-scan; keep the stored canonical id in step with it.
+  if (existing) refreshCanonicalTrackId(db, existing.id)
 
   return { lastInsertRowid: existing?.id ?? 0, wasInserted }
 }
@@ -1133,6 +1312,13 @@ export function deleteTrack(id: number): RunResult {
 
 export function markTrackAnalyzed(id: number): RunResult {
   return stmts.markAnalyzed.run(id)
+}
+
+// Records (or, with null, clears) what analysis concluded about the file
+// itself. Only a definite outcome belongs here — never a failure that is the
+// environment's fault, such as the sidecar not starting.
+export function setTrackAnalysisError(id: number, issue: string | null): RunResult {
+  return db.prepare(`UPDATE tracks SET analysis_error = ? WHERE id = ?`).run(issue, id)
 }
 
 export function getTracksNeedingSync(): Track[] {
@@ -2226,7 +2412,7 @@ export function relinkTrack(trackId: number, newPath: string): RunResult {
 // ─── Rescan (mark-and-sweep) ───────────────────────────────
 // A rescan walks what is actually on disk and reconciles the DB against it.
 // The watcher only ever hears about changes made while the app was running,
-// so anything that happened with CrateCloud closed — a drive reorganised in
+// so anything that happened with DeepCrated closed — a drive reorganised in
 // Finder, files deleted, a folder renamed — is invisible until a rescan
 // looks. This is the deliberate redundancy alongside the watcher, not a
 // legacy fallback.
@@ -2300,7 +2486,7 @@ export function markTracksMissingByIds(ids: number[]): number {
 }
 
 // The mark half: the walk found these files exactly where the DB expected
-// them, unchanged. Stamping last_seen_at is what makes "when did CrateCloud
+// them, unchanged. Stamping last_seen_at is what makes "when did DeepCrated
 // last lay eyes on this file" meaningful, and clearing `missing` is what
 // makes a rescan the recovery path for a track the watcher wrongly flagged
 // (a drive that was briefly unmounted, an unlink event with no matching add).
@@ -2475,7 +2661,7 @@ export function fillTrackFieldsIfEmpty(
 }
 
 // Only ever called for a track this same Serato-import job just inserted
-// (added_at otherwise already reflects a real prior "added to CrateCloud"
+// (added_at otherwise already reflects a real prior "added to DeepCrated"
 // moment, via its own NOT NULL DEFAULT — see the tracks table — which a
 // later Serato import has no business overwriting).
 export function setTrackAddedAt(trackId: number, epochSeconds: number): void {
@@ -2533,6 +2719,27 @@ export function ignorePendingChange(id: number): RunResult {
   return stmts.ignorePendingChange.run(id)
 }
 
+// ─── Anonymous stats store ────────────────────────────────
+// Only src/main/stats/ should call this; the renderer reaches it through the
+// privacy:* IPC handlers, never directly.
+export function getStatsStore(): StatsStore {
+  return createSqliteStatsStore(db)
+}
+
+// ─── Artist cleanup store ─────────────────────────────────
+// setTagsForField is passed in rather than imported by the store: this file
+// imports the store, so the reverse would be circular.
+export function getArtistStore(): ArtistStore {
+  return createSqliteArtistStore(db, { setTagsForField, getSetting })
+}
+
+// ─── Track identity store ─────────────────────────────────
+// For src/main/identity/ (backfill, lookup) and the stats queue; the renderer
+// never reaches it.
+export function getIdentityStore(): IdentityStore {
+  return createSqliteIdentityStore(db)
+}
+
 // ─── Settings functions ───────────────────────────────────
 
 export function getSetting(key: string): string | null {
@@ -2557,4 +2764,16 @@ export function getArtworkPath(trackId: number): string | null {
   const row = db.prepare('SELECT artwork_path FROM tracks WHERE id = ?').get(trackId) as
     { artwork_path: string | null } | undefined
   return row?.artwork_path ?? null
+}
+
+// ─── Crate Health ──────────────────────────────────────────
+// Read-only. The rules and checks live in health/ (pure, no db.ts import);
+// this is only where the open handle meets them. Smart crates and import
+// triage should reach the rule compiler through health/rules.ts the same way.
+export function getHealthSummary(): HealthSummary {
+  return computeHealthSummary(db)
+}
+
+export function getHealthQueue(checkId: HealthCheckId): number[] {
+  return computeHealthQueue(db, checkId)
 }

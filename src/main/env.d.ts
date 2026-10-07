@@ -15,6 +15,10 @@ interface ImportMetaEnv {
   readonly MAIN_VITE_AUTH_PASSWORD_RESET_URL?: string
   readonly MAIN_VITE_ACCOUNT_MANAGEMENT_URL?: string
   readonly MAIN_VITE_CUSTOMER_PORTAL_URL?: string
+  // Optional online track identification (off by default, a Settings
+  // toggle). Both must be set or the toggle is unavailable.
+  readonly MAIN_VITE_ACOUSTID_API_KEY?: string
+  readonly MAIN_VITE_MB_CONTACT?: string
 }
 
 interface ImportMeta {

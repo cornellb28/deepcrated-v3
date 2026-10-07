@@ -248,8 +248,11 @@ const api = {
       total: number
     }) => void
   ) => ipcRenderer.on('library:track-analyzed', (_e, d) => cb(d)),
-  onAnalysisComplete: (cb: (data: { analyzed: number; total: number }) => void) =>
-    ipcRenderer.on('library:analysis-complete', (_e, d) => cb(d)),
+  onAnalysisComplete: (
+    cb: (data: { analyzed: number; total: number; stopped?: boolean; issues?: number }) => void
+  ) => ipcRenderer.on('library:analysis-complete', (_e, d) => cb(d)),
+  onTrackAnalysisIssue: (cb: (data: { trackId: number; issue: string }) => void) =>
+    ipcRenderer.on('library:track-analysis-issue', (_e, d) => cb(d)),
   // Per-track stage progress for a single analyzeFile call that was given a
   // trackId — one event per analyze.py stage.
   onAnalyzeFileProgress: (cb: (p: AnalyzeFileProgressPayload) => void) =>
@@ -276,8 +279,15 @@ const api = {
   offAnalysisListeners: () => {
     ipcRenderer.removeAllListeners('library:track-analyzed')
     ipcRenderer.removeAllListeners('library:analysis-complete')
+    ipcRenderer.removeAllListeners('library:track-analysis-issue')
     ipcRenderer.removeAllListeners('analysis:file-progress')
   },
+  // Crate Health (read-only)
+  health: {
+    summary: () => ipcRenderer.invoke('health:summary'),
+    queue: (checkId: string) => ipcRenderer.invoke('health:queue', checkId)
+  },
+
   // Tracks
   db: {
     allTracks: () => ipcRenderer.invoke('db:all-tracks'),
@@ -374,6 +384,53 @@ const api = {
     get: (key: string) => ipcRenderer.invoke('settings:get', key),
     set: (key: string, value: string) => ipcRenderer.invoke('settings:set', key, value),
     delete: (key: string) => ipcRenderer.invoke('settings:delete', key)
+  },
+
+  // Artist-name cleanup: the triage inbox and the library re-clean. The
+  // renderer asks for decisions to be applied; matching happens in main.
+  artist: {
+    suggestions: () => ipcRenderer.invoke('artist:suggestions'),
+    accept: (raw: string) => ipcRenderer.invoke('artist:accept', raw),
+    edit: (raw: string, name: string) => ipcRenderer.invoke('artist:edit', raw, name),
+    keep: (raw: string) => ipcRenderer.invoke('artist:keep', raw),
+    restoreOriginal: (trackId: number) => ipcRenderer.invoke('artist:restore-original', trackId),
+    recleanPreview: () => ipcRenderer.invoke('artist:reclean-preview'),
+    recleanApproveHigh: () => ipcRenderer.invoke('artist:reclean-approve-high'),
+    recleanQueueReview: () => ipcRenderer.invoke('artist:reclean-queue-review'),
+    undo: () => ipcRenderer.invoke('artist:undo'),
+    undoInfo: () => ipcRenderer.invoke('artist:undo-info'),
+    onChanged: (cb: (p: { trackIds: number[] }) => void) =>
+      ipcRenderer.on('artist-clean:changed', (_e, p) => cb(p)),
+    onNotice: (cb: (p: { message: string }) => void) =>
+      ipcRenderer.on('artist-clean:notice', (_e, p) => cb(p)),
+    onProgress: (cb: (p: ArtistCleanProgress) => void) =>
+      ipcRenderer.on('artist-clean:progress', (_e, p) => cb(p)),
+    offEvents: () => {
+      ipcRenderer.removeAllListeners('artist-clean:changed')
+      ipcRenderer.removeAllListeners('artist-clean:notice')
+      ipcRenderer.removeAllListeners('artist-clean:progress')
+    }
+  },
+
+  // Track identity backfill: status for the Settings toggle and a progress
+  // feed for the jobs panel. The ids themselves are not exposed here.
+  identity: {
+    getStatus: () => ipcRenderer.invoke('identity:get-status'),
+    kick: () => ipcRenderer.invoke('identity:kick'),
+    onProgress: (cb: (s: IdentityStatus) => void) =>
+      ipcRenderer.on('identity:progress', (_e, s) => cb(s)),
+    offProgress: () => ipcRenderer.removeAllListeners('identity:progress')
+  },
+
+  // Anonymous stats consent and per-item privacy. Deliberately small: no
+  // canCollect, no install id, no queue access from the renderer.
+  privacy: {
+    getConsent: () => ipcRenderer.invoke('privacy:get-consent'),
+    setConsent: (enabled: boolean) => ipcRenderer.invoke('privacy:set-consent', enabled),
+    setTrackPrivate: (trackIds: number[], value: boolean) =>
+      ipcRenderer.invoke('privacy:set-track-private', trackIds, value),
+    setCratePrivate: (crateId: number, value: boolean) =>
+      ipcRenderer.invoke('privacy:set-crate-private', crateId, value)
   },
 
   // Artwork — the renderer never builds artwork paths itself, only asks for

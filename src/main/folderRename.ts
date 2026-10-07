@@ -4,7 +4,7 @@
 // of these have to agree —
 //
 //   1. the directory on the hard drive
-//   2. the folder's name in CrateCloud
+//   2. the folder's name in DeepCrated
 //   3. every track's filepath underneath it
 //
 // A handler is not reachable from a test, so while this lived inside one the

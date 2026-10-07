@@ -1,4 +1,4 @@
-# cratecloud-v3
+# deepcrated-v3
 
 An Electron application with React and TypeScript
 

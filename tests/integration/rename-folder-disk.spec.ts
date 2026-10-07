@@ -9,7 +9,7 @@ import { createProbeSession, unwrap, type ProbeOp, type ProbeSession } from '../
 // these agree —
 //
 //   1. the directory on the hard drive
-//   2. the folder's name in CrateCloud
+//   2. the folder's name in DeepCrated
 //   3. every track's filepath underneath it
 //
 // The earlier rename specs only ever called the database half, so "the disk
@@ -22,7 +22,7 @@ let workDir: string
 let probe: ProbeSession
 
 test.beforeEach(() => {
-  workDir = makeTempDir('cratecloud-rename-')
+  workDir = makeTempDir('deepcrated-rename-')
   probe = createProbeSession()
 })
 test.afterEach(() => {
@@ -121,7 +121,7 @@ test('renaming a subfolder moves the directory, the name and every filepath', as
   expect(existsSync(join(renamed, 'One.mp3'))).toBe(true)
   expect(existsSync(join(renamed, 'Deep', 'Two.mp3'))).toBe(true)
 
-  // 2. THE NAME IN CRATECLOUD
+  // 2. THE NAME IN DEEPCRATED
   const byId = new Map(folders.map((f) => [f.id, f]))
   expect(byId.get(2)?.name).toBe('Peak Time')
   expect(byId.get(2)?.path).toBe(renamed)
@@ -169,7 +169,7 @@ test('renaming a watched folder moves the root, the directory and every filepath
   expect(existsSync(renamedRoot)).toBe(true)
   expect(existsSync(join(renamedRoot, 'House', 'Deep', 'Two.mp3'))).toBe(true)
 
-  // 2. THE NAME IN CRATECLOUD — library_roots AND the folder row
+  // 2. THE NAME IN DEEPCRATED — library_roots AND the folder row
   expect(roots[0].path).toBe(renamedRoot)
   expect(roots[0].name).toBe('Vinyl Rips')
   const byId = new Map(folders.map((f) => [f.id, f]))

@@ -22,7 +22,7 @@ let probe: ProbeSession
 test.beforeEach(() => {
   // realpath so /var/... and /private/var/... cannot disagree when
   // isPathUnder compares the import root against a resolved Serato path.
-  workDir = realpathSync(makeTempDir('cratecloud-serato-import-'))
+  workDir = realpathSync(makeTempDir('deepcrated-serato-import-'))
   seratoDir = join(workDir, '_Serato_')
   musicDir = join(workDir, 'Music')
   mkdirSync(join(seratoDir, 'Subcrates'), { recursive: true })
@@ -86,7 +86,7 @@ test('detection returns null when there is no database V2, and creates nothing',
 
 // ── database V2 field fill ────────────────────────────────────────────────
 
-test('Serato fills fields CrateCloud has left empty', async () => {
+test('Serato fills fields DeepCrated has left empty', async () => {
   const filepath = trackPath('One.mp3')
   writeFileSync(
     join(seratoDir, 'database V2'),
@@ -122,7 +122,7 @@ test('Serato fills fields CrateCloud has left empty', async () => {
   expect(row.duration_sec).toBe(262.74)
 })
 
-test('Serato never overwrites a field CrateCloud already has', async () => {
+test('Serato never overwrites a field DeepCrated already has', async () => {
   const filepath = trackPath('One.mp3')
   writeFileSync(
     join(seratoDir, 'database V2'),

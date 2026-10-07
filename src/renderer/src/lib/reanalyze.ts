@@ -39,14 +39,32 @@ export async function reanalyzeTrack(trackId: number): Promise<ReanalyzeOutcome>
     const result = await window.api.analyzeFile(track.filepath, trackId)
     if (!result.ok || !result.data) return 'failed'
 
+    // The sidecar answered but could not analyse the file. Before this check
+    // such a result fell through and was written back as "ok" with no BPM and
+    // a fresh analyzed_at. Main has already recorded the reason on the track;
+    // this keeps the store in step.
+    if (!result.data.success) {
+      useLibraryStore
+        .getState()
+        .updateTrack(trackId, { analysis_error: result.data.analysis_issue ?? null })
+      return 'failed'
+    }
+
     const { bpm, key_camelot, key_full, duration_sec, duration_str } = result.data
 
-    // TODO(cratecloud): duration_sec/duration_str are shown but not saved —
+    // TODO(deepcrated): duration_sec/duration_str are shown but not saved —
     // neither is in db.ts's UPDATABLE_TRACK_FIELDS, so a re-analysed duration
     // survives in the UI until the next launch and no further.
-    useLibraryStore
-      .getState()
-      .updateTrack(trackId, { bpm, key_camelot, key_full, duration_sec, duration_str })
+    useLibraryStore.getState().updateTrack(trackId, {
+      bpm,
+      key_camelot,
+      key_full,
+      duration_sec,
+      duration_str,
+      // A clean re-analysis clears an earlier problem; a damaged-but-decoded
+      // one keeps it (main recorded it before this ran).
+      analysis_error: result.data.analysis_issue ?? null
+    })
 
     const saved = await window.api.db.updateTrackMeta({ id: trackId, bpm, key_camelot, key_full })
     if (!saved.ok) return 'failed'

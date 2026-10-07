@@ -15,9 +15,15 @@ import { ReconciliationModal } from './components/ReconciliationModal'
 import { SeratoImportConfirmDialog } from './components/SeratoImportConfirmDialog'
 import { Toaster } from './components/ui/sonner'
 import { BackgroundJobsPanel } from './components/BackgroundJobsPanel'
+import { refreshArtists } from './lib/refreshArtists'
+import { useArtistCleanStore } from './store/useArtistCleanStore'
 import { PlayerBar } from './components/PlayerBar'
 import { TagsCloudView } from './views/TagsCloudView'
 import { TagPageView } from './views/TagPageView'
+import { BrowseView } from './views/BrowseView'
+import { useBrowseStore } from './store/useBrowseStore'
+import { browseCrumbs } from './lib/browse/nav'
+import { getDimension } from './lib/browse/registry'
 import { CrateView } from './views/CrateView'
 import { AccountChip } from './components/AccountChip'
 import { LAST_VIEW_KEY, restoreView, isRestorable } from './lib/lastView'
@@ -51,6 +57,8 @@ function App(): React.JSX.Element {
     setCrateTrackIds
   } = useLibraryStore()
   const [activeView, setActiveViewState] = useState<View>('dashboard')
+  const browseNav = useBrowseStore((s) => s.nav)
+  const browseDispatch = useBrowseStore((s) => s.dispatch)
   // Restored from app_settings on mount (below), so a reload puts the DJ
   // back where they were. Same mechanism useViewMode uses for list/grid.
   const setActiveView = useCallback((next: View): void => {
@@ -281,8 +289,59 @@ function App(): React.JSX.Element {
       // clicking a row first.
       const tagsByTrack = await window.api.tags.forTracks(tracks.map((t) => t.id))
       setAllTrackTags(tagsByTrack)
+      tagsHydrated.current = true
     }
     load()
+  }, [])
+
+  // ── Artist-name cleanup events ────────────────────────────
+  // Imports clean artist names in the background (main/artist/). When that
+  // changes tracks, refresh their rows and badges; surface write failures;
+  // feed the progress row.
+  useEffect(() => {
+    window.api.artist.onChanged(({ trackIds }) => {
+      void refreshArtists(trackIds)
+    })
+    window.api.artist.onNotice(({ message }) => toast.warning(message))
+    window.api.artist.onProgress((p) => useArtistCleanStore.getState().setProgress(p))
+    return () => window.api.artist.offEvents()
+  }, [])
+
+  // ── Keep trackTags complete as tracks arrive ─────────────
+  // Every path that adds tracks (the watcher, folder import, a re-scan) only
+  // reloads `tracks`; trackTags is hydrated once at startup. A track added
+  // later therefore had no entry at all, which made every tag-based count
+  // (Browse by Tags, "Untagged", the tag page) wrong until a restart. One
+  // subscription covers every one of those paths, instead of patching each.
+  //
+  // Only tracks with NO entry are fetched — getTrackTagsForTracks answers
+  // [] for an untagged track, so after the first fetch every track has one.
+  // Waits for the startup hydration so it does not duplicate that query.
+  const tagsHydrated = useRef(false)
+  const tagFillInFlight = useRef<Set<number>>(new Set())
+  useEffect(() => {
+    return useLibraryStore.subscribe((state, prev) => {
+      if (!tagsHydrated.current || state.tracks === prev.tracks) return
+      const missing = state.tracks
+        .filter((t) => !state.trackTags.has(t.id) && !tagFillInFlight.current.has(t.id))
+        .map((t) => t.id)
+      if (missing.length === 0) return
+
+      missing.forEach((id) => tagFillInFlight.current.add(id))
+      window.api.tags
+        .forTracks(missing)
+        .then((byTrack) => {
+          // Skip any track whose entry appeared meanwhile (an Inspector edit
+          // landed first) — that one is newer than this answer.
+          const current = useLibraryStore.getState().trackTags
+          const fresh = Object.fromEntries(
+            Object.entries(byTrack).filter(([id]) => !current.has(Number(id)))
+          )
+          useLibraryStore.getState().setAllTrackTags(fresh)
+        })
+        .catch((err) => console.error('[tags] could not load tags for new tracks:', err))
+        .finally(() => missing.forEach((id) => tagFillInFlight.current.delete(id)))
+    })
   }, [])
 
   // Listen for progress events from the import handler
@@ -470,8 +529,25 @@ function App(): React.JSX.Element {
       setTrackAnalysis(p.trackId, { stage: p.stage, step: p.step, steps: p.steps })
     })
 
+    // A file analysis found bad. Already saved by main; this keeps the store
+    // (and so Crate Health's refresh) in step.
+    window.api.onTrackAnalysisIssue((data) => {
+      updateTrack(data.trackId, { analysis_error: data.issue as AnalysisIssue })
+    })
+
     // Phase 2 complete — hide the analysis bar
     window.api.onAnalysisComplete((data) => {
+      // Said once per run, not once per file: a folder of bad rips would
+      // otherwise stack a toast for every one.
+      if (data?.issues) {
+        toast.warning(
+          `${data.issues} file${data.issues === 1 ? '' : 's'} could not be read cleanly`,
+          {
+            description:
+              'They were skipped and will not be retried. See Crate health on the dashboard.'
+          }
+        )
+      }
       if (data?.stopped) {
         toast.info('Analysis stopped', {
           description: `${data.analyzed} of ${data.total} analyzed. The rest stay queued for next time.`
@@ -719,7 +795,7 @@ function App(): React.JSX.Element {
         </div>
       )}
 
-      {/* <h2 style={{ marginBottom: '0.5rem' }}>CrateCloud v2</h2> */}
+      {/* <h2 style={{ marginBottom: '0.5rem' }}>DeepCrated v2</h2> */}
 
       {/* Hidden track count — for Playwright tests */}
       <div data-testid="track-count" style={{ display: 'none' }}>
@@ -836,7 +912,18 @@ function App(): React.JSX.Element {
             borderBottom: '0.5px solid #1e1e2a',
             flexShrink: 0
           }}>
-            <Breadcrumb activeView={activeView} onNavigate={setActiveView} />
+            <Breadcrumb
+              activeView={activeView}
+              onNavigate={setActiveView}
+              trail={
+                activeView === 'browse'
+                  ? browseCrumbs(browseNav, (id) => getDimension(id)?.label).map((crumb) => ({
+                      label: crumb.label,
+                      onSelect: () => browseDispatch({ type: 'popTo', depth: crumb.depth })
+                    }))
+                  : undefined
+              }
+            />
             <AccountChip auth={auth} onAuthChanged={setAuth} />
           </div>
           {/* Views */}
@@ -849,9 +936,14 @@ function App(): React.JSX.Element {
             ) : (
               <DashboardView
                 onOpenLibrary={() => setActiveView('library')}
+                onOpenBrowse={() => {
+                  browseDispatch({ type: 'toHub' })
+                  setActiveView('browse')
+                }}
               />
             ))}
           {activeView === 'library' && <LibraryView />}
+          {activeView === 'browse' && <BrowseView />}
           {activeView === 'folders' &&
             (libraryRoots.length > 0 ? (
               <FolderView libraryRoots={libraryRoots} onRootsChanged={reloadRoots} />

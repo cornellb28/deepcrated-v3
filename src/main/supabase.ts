@@ -41,7 +41,7 @@ let client: SupabaseClient | null = null
 //     lifecycle. Refresh is driven explicitly from restoreSession() instead,
 //     which is both testable and awake at the only moment it matters.
 //   - detectSessionInUrl is a browser-only affordance (it reads
-//     window.location) and there is no location here; the cratecloud://
+//     window.location) and there is no location here; the deepcrated://
 //     callback is parsed by hand in auth.ts.
 export function getClient(): SupabaseClient {
   if (!isConfigured()) throw new Error(MISSING_CONFIG_MESSAGE)

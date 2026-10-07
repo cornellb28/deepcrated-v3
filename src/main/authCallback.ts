@@ -6,7 +6,7 @@
 //
 // The round trip (see deepcrate-account-contract): the app opens the website
 // with a challenge + state, the website hands back a ONE-TIME KEY on the
-// cratecloud:// deep link, and the app trades { key, verifier } for a session
+// deepcrated:// deep link, and the app trades { key, verifier } for a session
 // over HTTPS. The link never carries a token, and the verifier never leaves
 // this process, so an intercepted link is useless on its own.
 //
@@ -15,7 +15,16 @@
 
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 
-export const CALLBACK_PROTOCOL = 'cratecloud'
+// The scheme the app registers and the website should emit.
+export const CALLBACK_PROTOCOL = 'deepcrated'
+// The scheme this app used before the rename. Still registered and accepted so
+// sign-in keeps working while deepcrate-web and the Supabase redirect allowlist
+// still emit it.
+// TODO(deepcrated): drop this once the website builds deepcrated:// links and
+// the allowlist has deepcrated://auth-callback; then remove it from
+// CALLBACK_PROTOCOLS, electron-builder.yml `protocols`, and the legacy tests.
+export const LEGACY_CALLBACK_PROTOCOL = 'cratecloud'
+export const CALLBACK_PROTOCOLS: readonly string[] = [CALLBACK_PROTOCOL, LEGACY_CALLBACK_PROTOCOL]
 export const CALLBACK_URL = `${CALLBACK_PROTOCOL}://auth-callback`
 
 // A flow older than this is dead. The website's key lives 60 seconds, but a
@@ -33,8 +42,8 @@ export type ParsedCallback =
   // Not an auth callback at all (foreign scheme, other authority, argv noise).
   | { kind: 'none' }
 
-// Accepts exactly cratecloud://auth-callback?key=...&state=... and nothing
-// else. Fragments and every other parameter (token, code, error, ...) are
+// Accepts exactly deepcrated://auth-callback?key=...&state=... (or the legacy
+// cratecloud:// form) and nothing else. Fragments and every other parameter (token, code, error, ...) are
 // rejected outright rather than ignored, so a link built the old way can
 // never be half-honoured.
 export function parseCallbackUrl(rawUrl: string): ParsedCallback {
@@ -47,7 +56,7 @@ export function parseCallbackUrl(rawUrl: string): ParsedCallback {
 
   // Anything not on our scheme is not ours to interpret. Worth being strict:
   // on Windows every argv entry reaches this, not just deep links.
-  if (url.protocol !== `${CALLBACK_PROTOCOL}:`) return { kind: 'none' }
+  if (!CALLBACK_PROTOCOLS.some((scheme) => url.protocol === `${scheme}:`)) return { kind: 'none' }
   if (
     url.hostname !== 'auth-callback' ||
     url.username !== '' ||

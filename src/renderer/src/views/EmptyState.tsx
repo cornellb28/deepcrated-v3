@@ -77,7 +77,7 @@ export function EmptyState({
               letterSpacing: '-0.5px'
             }}
           >
-            CrateCloud
+            DeepCrated
           </h1>
 
           {/* Tagline */}

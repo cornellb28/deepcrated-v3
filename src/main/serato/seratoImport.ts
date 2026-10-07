@@ -24,7 +24,7 @@ import { listSessionFiles, readSessionPlays } from './seratoHistory'
 // ── Orchestrator: chunkReader + the three format layers + the existing
 // reconcile pipeline + crates/plays writes, all tied together. Never writes
 // anything under `_Serato_` itself — every db.ts call this file makes is
-// scoped to CrateCloud's own tables.
+// scoped to DeepCrated's own tables.
 
 export interface SeratoLibraryLocation {
   seratoDir: string
@@ -92,7 +92,7 @@ function recordUnresolved(tally: SeratoImportTally, path: string): void {
 // fingerprint reconcile scoped to this root's missing pool. The fallback
 // only ever *identifies* a row for field-filling purposes — it never calls
 // relinkTrack, since a Serato-recorded path being stale is not evidence
-// that CrateCloud's current filepath for that track is wrong.
+// that DeepCrated's current filepath for that track is wrong.
 async function resolveSeratoTrack(
   resolvedPath: string,
   missingPool: MissingTrackCandidate[]
@@ -173,7 +173,7 @@ async function importDatabaseV2(
 
 // Ensures every ancestor in nameParts exists as a real crate row (Serato's
 // "Parent%%Child" filename convention doesn't guarantee a standalone
-// "Parent.crate" ever existed — CrateCloud's nesting needs a real
+// "Parent.crate" ever existed — DeepCrated's nesting needs a real
 // parent_crate_id chain regardless), reusing one across every crate import
 // in this job that shares the same ancestor path.
 function findOrCreateCratePath(

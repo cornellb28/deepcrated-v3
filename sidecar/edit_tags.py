@@ -15,7 +15,7 @@ objects from stdin, writes one JSON result line to stdout per input, in
 the same order, flushed immediately so a caller can stream progress:
     edit_tags.py --batch [--no-serato] < items.ndjson
 """
-# TODO(cratecloud): not yet packaged — port v2 sidecar/build.sh
+# TODO(deepcrated): not yet packaged — port v2 sidecar/build.sh
 # (PyInstaller targets for analyze + edit_tags) as a separate task.
 
 import os
@@ -35,7 +35,7 @@ from mutagen.mp4 import MP4, MP4FreeForm
 from mutagen.aiff import AIFF
 from mutagen.wave import WAVE
 
-# TODO(cratecloud): add serato-tools to sidecar requirements + PyInstaller
+# TODO(deepcrated): add serato-tools to sidecar requirements + PyInstaller
 # hidden imports before release. Dependency change — separate confirmed step.
 try:
     from serato_tools.track_autotags import TrackAutotags
@@ -49,10 +49,13 @@ except ImportError:
 # `success: True` for them with nothing actually written).
 SUPPORTED = {'.mp3', '.flac', '.aiff', '.aif', '.m4a', '.wav'}
 
-# TODO(cratecloud): OGG tag writing unsupported — mutagen.oggvorbis.OggVorbis
+# TODO(deepcrated): OGG tag writing unsupported — mutagen.oggvorbis.OggVorbis
 # exists (plain Vorbis comments, same shape as FLAC's) but was never wired
 # up here. Add edit_ogg() in a follow-up if the UI needs to edit OGG metadata.
 
+# The CRATECLOUD_ID tag name is deliberately NOT renamed with the product: it is
+# written inside users' audio files and read back to recognise moved or renamed
+# tracks, so changing it would stop already-tagged files matching by identity.
 MP4_CRATECLOUD_KEY = '----:com.apple.iTunes:CRATECLOUD_ID'
 
 # MP4 has no standard atom for key, label or remixer, so these three travel as
@@ -385,7 +388,7 @@ def _atomic_edit(filepath, ext, write_fn, meta, write_serato):
     (i.e. just-written) mtime on the final path, since the live folder
     watcher needs to see this as a real change.
 
-    TODO(cratecloud): the watcher will pick this up as a file change (new
+    TODO(deepcrated): the watcher will pick this up as a file change (new
     mtime, possibly a different size) and may queue a rescan. Reconcile
     must treat a size delta coming from a tag edit as the same track
     (matched by client_uuid/partial_hash), not bounce it into "new file"

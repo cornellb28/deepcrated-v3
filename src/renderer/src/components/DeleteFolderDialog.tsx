@@ -95,7 +95,7 @@ export function DeleteFolderDialog({
             onSelect={() => setChoice('library')}
             icon={<FolderMinus size={16} />}
             accent="#378add"
-            title="Remove from CrateCloud only"
+            title="Remove from DeepCrated only"
             lines={
               hasTracks
                 ? [
@@ -136,7 +136,7 @@ export function DeleteFolderDialog({
               hasTracks
                 ? [
                     ['Folder', isWatchedFolder ? 'is unregistered and deleted from your drive' : 'deleted from your drive'],
-                    ['Tracks', `removed from CrateCloud — ${tracks}, with their tags`],
+                    ['Tracks', `removed from DeepCrated — ${tracks}, with their tags`],
                     ['Files', 'go to the Trash, recoverable from Finder until you empty it']
                   ]
                 : [

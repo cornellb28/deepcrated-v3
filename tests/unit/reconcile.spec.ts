@@ -17,7 +17,7 @@ import { makeTempDir } from '../helpers/audio'
 let workDir: string
 
 test.beforeEach(() => {
-  workDir = makeTempDir('cratecloud-reconcile-')
+  workDir = makeTempDir('deepcrated-reconcile-')
 })
 
 test.afterEach(() => {

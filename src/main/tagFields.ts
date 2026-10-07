@@ -17,7 +17,7 @@ export const DISPLAY_DELIMITER = ' / '
 //
 // grouping takes ' | ' as well because the files themselves use it — verified
 // on disk, an MP3 whose TIT1 frame reads "90s | CLASSIC". That is the DJ's own
-// convention inside the file; ' / ' is CrateCloud's. Both mean the same thing
+// convention inside the file; ' / ' is DeepCrated's. Both mean the same thing
 // and both have to survive a round trip.
 //
 // Everything else takes ' / ' alone. Nothing here ever splits on a comma, an

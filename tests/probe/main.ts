@@ -55,11 +55,97 @@ async function run(): Promise<void> {
   const filenameTemplate = await import('../../src/main/filenameTemplate')
   const folderRename = await import('../../src/main/folderRename')
   const expectedChanges = await import('../../src/main/expectedChanges')
+  const stats = await import('../../src/main/stats')
+  const identityEngine = await import('../../src/main/identity/engine')
+  const artistRuntime = await import('../../src/main/artist/runtime')
 
   const registry: Record<string, (...args: never[]) => unknown> = {
     ...(db as unknown as Record<string, (...args: never[]) => unknown>),
     ...(serato as unknown as Record<string, (...args: never[]) => unknown>),
     ...(seratoImport as unknown as Record<string, (...args: never[]) => unknown>),
+    // canCollect, enqueueStat, statsSetConsent, statsGetConsent, ...
+    ...(stats as unknown as Record<string, (...args: never[]) => unknown>),
+
+    // ── artist-name cleanup ────────────────────────────────────────────
+    // The real service, the real database and the real sidecar tag writer:
+    // a write here changes an actual audio file.
+    artistProcess: ((ids: number[]) => artistRuntime.artistCleaner.processNewTracks(ids)) as unknown as (
+      ...args: never[]
+    ) => unknown,
+    artistGroups: (() => artistRuntime.artistCleaner.suggestionGroups()) as unknown as (
+      ...args: never[]
+    ) => unknown,
+    artistAccept: ((raw: string, name?: string) =>
+      artistRuntime.artistCleaner.acceptGroup(raw, name)) as unknown as (...args: never[]) => unknown,
+    artistKeep: ((raw: string) => artistRuntime.artistCleaner.keepGroup(raw)) as unknown as (
+      ...args: never[]
+    ) => unknown,
+    artistRestore: ((id: number) => artistRuntime.artistCleaner.restoreOriginal(id)) as unknown as (
+      ...args: never[]
+    ) => unknown,
+    artistPreview: (() => artistRuntime.artistCleaner.previewReclean()) as unknown as (
+      ...args: never[]
+    ) => unknown,
+    artistApproveHigh: (() => artistRuntime.artistCleaner.approveHigh()) as unknown as (
+      ...args: never[]
+    ) => unknown,
+    artistUndo: (() => artistRuntime.artistCleaner.undoLastBatch()) as unknown as (
+      ...args: never[]
+    ) => unknown,
+    artistUndoInfo: (() => artistRuntime.artistCleaner.undoInfo()) as unknown as (
+      ...args: never[]
+    ) => unknown,
+    // What the database holds for a track's artist: the column, the tags (in
+    // order) and the stored original.
+    artistState: ((id: number) => {
+      const row = db.getTrackById(id) as { artist: string | null; artist_raw: string | null }
+      const tags = (db.getTrackTags(id) as { field: string; value: string }[])
+        .filter((t) => t.field === 'artist')
+        .map((t) => t.value)
+      return { artist: row.artist, artist_raw: row.artist_raw, tags }
+    }) as unknown as (...args: never[]) => unknown,
+
+    // ── track identity ─────────────────────────────────────────────────
+    // Thin wrappers over the real IdentityStore (SQLite) and, for the
+    // backfill, the real engine and the real sidecar tag reader. Only the
+    // fingerprinter is faked — fpcalc is not bundled — and the lookup is
+    // left out, as it is off by default.
+    identityTags: ((id: number, isrc: string | null, mbid: string | null) =>
+      db.getIdentityStore().setIdentityTags(id, isrc, mbid)) as unknown as (
+      ...args: never[]
+    ) => unknown,
+    identityFingerprint: ((id: number, fingerprint: string, duration: number) =>
+      db.getIdentityStore().setFingerprint(id, fingerprint, duration)) as unknown as (
+      ...args: never[]
+    ) => unknown,
+    identityRecordingId: ((id: number, mbid: string) =>
+      db.getIdentityStore().setRecordingId(id, mbid)) as unknown as (...args: never[]) => unknown,
+    identityCanonical: ((id: number) => db.getIdentityStore().getCanonicalTrackId(id)) as unknown as (
+      ...args: never[]
+    ) => unknown,
+    identityProgress: (() => db.getIdentityStore().progress()) as unknown as (
+      ...args: never[]
+    ) => unknown,
+    // pauseAfterChecks: stop the run after that many shouldPause() calls, to
+    // simulate quitting mid-backfill.
+    identityBackfill: (async (pauseAfterChecks?: number) => {
+      let checks = 0
+      return identityEngine
+        .createEngine({
+          store: db.getIdentityStore(),
+          now: () => Date.now(),
+          readTags: sidecar.readIdentityTags,
+          fingerprint: async (filepath: string) => ({
+            fingerprint: `fingerprint-of-${filepath}`,
+            duration: 200
+          }),
+          lookup: null,
+          lookupEnabled: () => false,
+          isOnline: () => false,
+          shouldPause: () => pauseAfterChecks !== undefined && ++checks > pauseAfterChecks
+        })
+        .run()
+    }) as unknown as (...args: never[]) => unknown,
 
     // sweepTracks takes a Set, which does not survive JSON on the way in —
     // a spec sends the plain array of walked paths instead.
@@ -128,6 +214,13 @@ async function run(): Promise<void> {
       const result = await sidecar.analyzeFile(filepath, (stage) => stages.push(stage))
       return { stages, success: result.success, bpm: result.bpm ?? null }
     }) as unknown as (...args: never[]) => unknown,
+
+    // analyzeFile with a deliberately tiny timeout, to reach the kill path
+    // without waiting out the real two minutes.
+    analyzeFileWithTimeout: ((filepath: string, timeoutMs: number) =>
+      sidecar.analyzeFile(filepath, undefined, timeoutMs)) as unknown as (
+      ...args: never[]
+    ) => unknown,
 
     readTagsFast: sidecar.readTagsFast as unknown as (...args: never[]) => unknown,
 

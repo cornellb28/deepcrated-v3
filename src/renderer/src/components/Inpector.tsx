@@ -12,6 +12,7 @@ import { getYearOptions } from '../utils/years'
 import { useArtworkUrl } from '../hooks/useArtworkUrl'
 import dclogo from '@renderer/assets/crateIcon.png'
 import { fullTrackMeta } from '../lib/tagMeta'
+import { refreshArtists } from '../lib/refreshArtists'
 
 const CAMELOT_KEYS = [
   '1A', '2A', '3A', '4A', '5A', '6A', '7A', '8A', '9A', '10A', '11A', '12A',
@@ -55,7 +56,7 @@ export function Inspector(): React.JSX.Element {
         await window.api.db.markAnalyzed(track.id)
 
         // The detected tempo and key have to reach the file as well, or they
-        // only ever exist inside CrateCloud — Serato reads BPM off the file's
+        // only ever exist inside DeepCrated — Serato reads BPM off the file's
         // own tags, and off the Serato Autotags block a bpm write also lands.
         const updated = currentTrack()
         if (updated) writeMetaToFile(updated.filepath, fullTrackMeta(updated))
@@ -178,12 +179,12 @@ export function Inspector(): React.JSX.Element {
       return
     }
 
-    // energy is CrateCloud-only — no tag carries it, so there is nothing to
+    // energy is DeepCrated-only — no tag carries it, so there is nothing to
     // write to the file for it.
     if (field === 'energy') return
 
     // Every field goes to the file, not just the one that changed: a track
-    // whose tags CrateCloud has never written catches up in one save rather
+    // whose tags DeepCrated has never written catches up in one save rather
     // than only ever gaining the field that happened to be typed into.
     const updated = currentTrack()
     if (updated) writeMetaToFile(updated.filepath, fullTrackMeta(updated))
@@ -321,7 +322,7 @@ export function Inspector(): React.JSX.Element {
               ) : (
                 <img
                   src={dclogo}
-                  alt="DeepCrate"
+                  alt="DeepCrated"
                   style={{ width: '100%', height: '100%', objectFit: 'contain' }}
                 />
               )}
@@ -563,6 +564,56 @@ export function Inspector(): React.JSX.Element {
             <ReadField label="Duration" value={track.duration_str} />
             <ReadField label="Format" value={track.format} />
             <ReadField label="Key full" value={track.key_full} />
+            {track.artist_raw && track.artist_raw !== track.artist && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontSize: '11px', color: '#555' }}>
+                  Imported as <span style={{ color: '#c0c0d8' }}>{track.artist_raw}</span>
+                </span>
+                <button
+                  type="button"
+                  data-testid="restore-original-artist"
+                  onClick={async () => {
+                    const r = await window.api.artist.restoreOriginal(track.id)
+                    if (!r.ok) {
+                      toast.error('Could not restore the original', { description: r.error })
+                      return
+                    }
+                    await refreshArtists([track.id])
+                    toast.success('Original artist restored')
+                  }}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: '#7f77dd',
+                    fontSize: '11px',
+                    cursor: 'pointer',
+                    padding: 0,
+                    fontFamily: 'inherit',
+                    flexShrink: 0
+                  }}
+                >
+                  Restore
+                </button>
+              </div>
+            )}
+            <Separator className="bg-[#1e1e2a]" />
+            <label
+              style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}
+              title="Never included in anonymous stats, even when sharing is on"
+            >
+              <input
+                type="checkbox"
+                data-testid="inspector-keep-private"
+                checked={track.stats_private === 1}
+                onChange={async (e) => {
+                  const next = e.target.checked
+                  const result = await window.api.privacy.setTrackPrivate([track.id], next)
+                  if (result.ok) updateTrack(track.id, { stats_private: next ? 1 : 0 })
+                  else toast.error('Could not change privacy', { description: result.error })
+                }}
+              />
+              <span style={{ fontSize: '12px', color: '#c0c0d8' }}>Keep private</span>
+            </label>
             <Separator className="bg-[#1e1e2a]" />
             <div>
               <div style={{

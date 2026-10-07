@@ -27,7 +27,7 @@
 // already round-trip through. Splitting on it leaves "R&B" intact.
 
 import Database from 'better-sqlite3'
-import { writeFileSync } from 'fs'
+import { existsSync, writeFileSync } from 'fs'
 import { homedir } from 'os'
 import { join } from 'path'
 
@@ -42,14 +42,13 @@ const delimsFor = (f) => FIELD_DELIMS[f] ?? [DELIM]
 // fields with derived columns, so they carry the same drift risk.
 const FIELDS = ['artist', 'genre', 'grouping', 'label', 'remixer', 'composer', 'comment', 'album']
 
-const DEFAULT_DB = join(
-  homedir(),
-  'Library',
-  'Application Support',
-  'cratecloud-v3',
-  'cratecloud',
-  'library.db'
-)
+// The data folder is named after the app: DeepCrated now, cratecloud-v3 before
+// the rename. Prefers the new one, falls back to the old so the script still
+// works on a machine whose data has not been moved yet.
+const dataDb = (appFolder) =>
+  join(homedir(), 'Library', 'Application Support', appFolder, 'cratecloud', 'library.db')
+const DEFAULT_DB =
+  [dataDb('DeepCrated'), dataDb('cratecloud-v3')].find((p) => existsSync(p)) ?? dataDb('DeepCrated')
 
 const dbPath = process.argv[2] ?? DEFAULT_DB
 const outPath = process.argv[3] ?? null

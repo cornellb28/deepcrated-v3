@@ -37,7 +37,7 @@ let workDir: string
 let probe: ProbeSession
 
 test.beforeEach(() => {
-  workDir = makeTempDir('cratecloud-analysis-')
+  workDir = makeTempDir('deepcrated-analysis-')
   probe = createProbeSession()
 })
 

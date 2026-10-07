@@ -13,7 +13,7 @@ interface SeratoImportConfirmDialogProps {
 
 // Shown when a folder being imported has a `_Serato_` folder on its volume
 // (see detectSeratoLibrary in main/serato/seratoImport.ts) — offers to pull
-// in Serato's crates, history, and any tag data CrateCloud's own file-tag
+// in Serato's crates, history, and any tag data DeepCrated's own file-tag
 // read didn't already have. Checked by default: a DJ who has a Serato
 // library on the volume they're importing almost always wants this.
 export function SeratoImportConfirmDialog({
@@ -83,7 +83,7 @@ export function SeratoImportConfirmDialog({
           />
           <span style={{ fontSize: '12px', color: '#bbb', lineHeight: 1.5 }}>
             Import Serato data from this library — crates, play history, and any tag fields
-            CrateCloud didn&apos;t already read from the files themselves.
+            DeepCrated didn&apos;t already read from the files themselves.
           </span>
         </label>
 

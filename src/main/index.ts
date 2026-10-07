@@ -9,7 +9,7 @@ import { createReadStream, createWriteStream, type Stats } from 'fs'
 import { startWatcher, stopWatcher, stopAllWatchers, setWatcherCallbacks } from './libraryWatcher'
 import { isUnchanged, normalizeMtime, withTrailingSep } from './rescan'
 import {
-  CALLBACK_PROTOCOL,
+  CALLBACK_PROTOCOLS,
   getAuthState,
   signOut,
   signInInBrowser,
@@ -35,6 +35,9 @@ import {
   insertTrack,
   insertTracksBatch,
   getAllTracks,
+  getHealthSummary,
+  getHealthQueue,
+  setTrackAnalysisError,
   getTrackById,
   getTracksByIds,
   updateTrackMeta,
@@ -117,6 +120,8 @@ import {
   type CrateExportSettings
 } from './serato'
 import { computePartialHash, findReconcileMatch } from './reconcile'
+import { isHealthCheckId } from './health/checks'
+import type { AnalysisIssue } from './analysisIssue'
 import {
   runSeratoImport,
   detectSeratoLibrary,
@@ -128,6 +133,20 @@ import { applyFolderRename, planFolderRename } from './folderRename'
 import { expectMove, cancelExpectation } from './expectedChanges'
 import { buildFilename, type TemplateTrack } from './filenameTemplate'
 import { resolveCollisionName } from './movePaths'
+import {
+  statsGetConsent,
+  statsSetConsent,
+  statsSetTracksPrivate,
+  statsSetCratePrivate
+} from './stats'
+import { isReservedSettingKey } from './stats/consent'
+import {
+  startIdentityBackfill,
+  kickIdentity,
+  getIdentityStatus
+} from './identity/runtime'
+import { artistCleaner, processNewArtists, setArtistCleanSender } from './artist/runtime'
+import { startStatsUploader, flushStatsOnQuit, shouldFlushOnQuit } from './stats/runtime'
 
 // Raise file handle limit for large libraries
 try {
@@ -563,6 +582,8 @@ function buildTrackData(
   file_size_bytes: number | null
   client_uuid: string | null
   last_modified: number | null
+  isrc: string | null
+  musicbrainz_recording_id: string | null
 } {
   return {
     filepath,
@@ -596,7 +617,11 @@ function buildTrackData(
     // last read it" signal. Null when the caller had no stat to hand (the
     // watcher's single-file paths) — a null simply means the next rescan
     // re-reads this file once and fills it in.
-    last_modified: lastModified
+    last_modified: lastModified,
+    // Raw tag values (null when the file has none). Passing the keys at all
+    // tells insertTrack identity was read for this track; it validates them.
+    isrc: result.isrc ?? null,
+    musicbrainz_recording_id: result.musicbrainz_recording_id ?? null
   }
 }
 
@@ -1068,7 +1093,7 @@ function buildEditTagsProgressPayload(
 // Spawns edit_tags.py once in --batch mode (see editTagsBatch in
 // sidecar.ts) and streams one progress tick per file. This only spawns the
 // sidecar and reports progress — no DB write happens here yet.
-// TODO(cratecloud): stamping updated_at / recording write-back status per
+// TODO(deepcrated): stamping updated_at / recording write-back status per
 // track needs its own confirmed step once the result shape is signed off —
 // see the CRATECLOUD_ID write-back plan.
 async function runEditTagsJob(
@@ -1436,6 +1461,9 @@ async function runFolderImport(
           if (hash) setTrackArtworkHash(row.id, hash)
         }
       }
+      // New tracks get their artist names cleaned and turned into tags, in the
+      // background; relinked and re-scanned rows are not new and are skipped.
+      processNewArtists(inserted.filter((r) => r.id > 0 && r.wasInserted).map((r) => r.id))
     }
 
     job.nextIndex = i + batchPaths.length
@@ -1509,6 +1537,10 @@ async function runFolderImport(
   job.status = 'done'
   emit(buildProgressPayload(job, 'done'))
   jobs.delete(id)
+
+  // New tracks have identity tags to read; the backfill steps aside during an
+  // import, so give it the nudge now that this one is over.
+  kickIdentity()
 
   // Restart watcher after import completes
   if (matchingRoot) startWatcher(matchingRoot.id, matchingRoot.path)
@@ -1591,6 +1623,26 @@ export function requestPhase2Stop(): void {
   phase2StopRequested = true
 }
 
+// What an analysis says about the FILE, stored on the track and pushed to the
+// renderer. Records only a definite outcome — a clean success (which clears
+// any earlier problem) or a failure the sidecar attributed to the file. A
+// failure with no issue (file not found, sidecar would not start) says
+// nothing about the file and must never mark it corrupt.
+// Returns the issue when one was recorded.
+function recordAnalysisOutcome(
+  sender: Electron.WebContents | null,
+  trackId: number,
+  result: { success: boolean; analysis_issue?: AnalysisIssue | null }
+): AnalysisIssue | null {
+  const issue = result.analysis_issue ?? null
+  if (!result.success && !issue) return null
+  setTrackAnalysisError(trackId, issue)
+  if (issue && sender && !sender.isDestroyed()) {
+    sender.send('library:track-analysis-issue', { trackId, issue })
+  }
+  return issue
+}
+
 async function runPhase2Analysis(event: Electron.IpcMainInvokeEvent): Promise<void> {
   phase2StopRequested = false
 
@@ -1602,13 +1654,17 @@ async function runPhase2Analysis(event: Electron.IpcMainInvokeEvent): Promise<vo
     event.sender.send('library:analysis-complete', {
       analyzed: 0,
       total: 0,
-      stopped: false
+      stopped: false,
+      issues: 0
     })
     return
   }
 
   const total = unanalyzed.length
   let done = 0
+  // Files analysis found bad this run. They are recorded on the track, so the
+  // next run skips them instead of decoding them again.
+  let issues = 0
   const concurrency = 4 // librosa is heavy — keep this lower
 
   for (let i = 0; i < unanalyzed.length; i += concurrency) {
@@ -1620,6 +1676,13 @@ async function runPhase2Analysis(event: Electron.IpcMainInvokeEvent): Promise<vo
       batch.map(async (track) => {
         try {
           const result = await analyzeFile(track.filepath)
+          const issue = recordAnalysisOutcome(event.sender, track.id, result)
+          if (issue) issues++
+
+          if (!result.success && issue) {
+            // Unreadable: nothing to write, but it was processed.
+            done++
+          }
 
           if (result.success) {
             // Update just the analysis fields
@@ -1671,7 +1734,8 @@ async function runPhase2Analysis(event: Electron.IpcMainInvokeEvent): Promise<vo
   event.sender.send('library:analysis-complete', {
     analyzed: done,
     total,
-    stopped: phase2StopRequested
+    stopped: phase2StopRequested,
+    issues
   })
 
   phase2StopRequested = false
@@ -1727,11 +1791,11 @@ const gotSingleInstanceLock = app.requestSingleInstanceLock()
 if (!gotSingleInstanceLock) {
   app.quit()
 } else {
-  // Windows/Linux deliver the cratecloud:// URL as an argv entry on the
+  // Windows/Linux deliver the deepcrated:// URL as an argv entry on the
   // second instance, not as an event — so it has to be dug out of the
   // command line. macOS uses 'open-url' instead (registered below).
   app.on('second-instance', (_event, argv) => {
-    const url = argv.find((arg) => arg.startsWith(`${CALLBACK_PROTOCOL}://`))
+    const url = argv.find((arg) => CALLBACK_PROTOCOLS.some((s) => arg.startsWith(`${s}://`)))
     if (url) void handleAuthCallback(url)
 
     // Whether or not it was a deep link, the DJ just tried to open the app:
@@ -1752,15 +1816,17 @@ app.on('open-url', (event, url) => {
 })
 
 // In dev the executable is Electron itself, so the OS has to be told which
-// binary and which script to hand cratecloud:// back to; packaged builds
+// binary and which script to hand deepcrated:// back to; packaged builds
 // need neither argument. Without this branch, deep links silently never
 // arrive during development, which looks exactly like broken OAuth code.
-if (process.defaultApp) {
-  if (process.argv.length >= 2) {
-    app.setAsDefaultProtocolClient(CALLBACK_PROTOCOL, process.execPath, [resolve(process.argv[1])])
+for (const scheme of CALLBACK_PROTOCOLS) {
+  if (process.defaultApp) {
+    if (process.argv.length >= 2) {
+      app.setAsDefaultProtocolClient(scheme, process.execPath, [resolve(process.argv[1])])
+    }
+  } else {
+    app.setAsDefaultProtocolClient(scheme)
   }
-} else {
-  app.setAsDefaultProtocolClient(CALLBACK_PROTOCOL)
 }
 
 // Redeems the one-time key and tells the renderer, which is waiting on a
@@ -1808,6 +1874,16 @@ protocol.registerSchemesAsPrivileged([
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(() => {
+  startStatsUploader()
+  setArtistCleanSender((channel, payload) => mainWindow?.webContents.send(channel, payload))
+  startIdentityBackfill({
+    send: (status) => mainWindow?.webContents.send('identity:progress', status),
+    // Step aside while an import is walking or parsing a folder.
+    isImportRunning: () =>
+      [...jobs.values()].some(
+        (j) => j.type === 'import' && (j.status === 'parsing' || j.status === 'sweeping')
+      )
+  })
   let artworkInFlight = 0
   const ARTWORK_CONCURRENCY = 8
   // ── Register a custom protocol for serving local artwork ──────────────────────────────────────────────
@@ -2150,6 +2226,7 @@ app.whenReady().then(() => {
         const partialHash = await computePartialHash(filepath)
         const insertResult = insertTrack({ ...trackData, partial_hash: partialHash }) as {
           lastInsertRowid: number | bigint
+          wasInserted: boolean
         }
         trackId = Number(insertResult.lastInsertRowid)
 
@@ -2157,6 +2234,7 @@ app.whenReady().then(() => {
           const hash = await storeArtwork(Buffer.from(fastResult.artwork_base64, 'base64'))
           if (hash) setTrackArtworkHash(trackId, hash)
         }
+        if (insertResult.wasInserted && trackId > 0) processNewArtists([trackId])
       }
 
       // Tell renderer the track exists so it can refresh the list
@@ -2175,6 +2253,7 @@ app.whenReady().then(() => {
       // Phase 2 - analyze this one file immediately
       // Single file is fast enough to do inline
       const fullResult = await analyzeFile(filepath)
+      recordAnalysisOutcome(event.sender, trackId, fullResult)
 
       if (fullResult.success) {
         updateTrackAnalysis(trackId, fullResult)
@@ -2371,6 +2450,15 @@ app.whenReady().then(() => {
 
   ipcMain.handle('db:all-tracks', () => getAllTracks())
 
+  // Crate Health. Read-only counts and fix-queue ids; the renderer resolves
+  // ids against its own track store. The id is validated here because it
+  // crosses IPC.
+  ipcMain.handle('health:summary', () => getHealthSummary())
+  ipcMain.handle('health:queue', (_e, checkId: unknown) => {
+    if (!isHealthCheckId(checkId)) throw new Error('Unknown health check')
+    return getHealthQueue(checkId)
+  })
+
   ipcMain.handle('db:track-by-id', (_e, id: number) => getTrackById(id))
 
   ipcMain.handle('db:tracks-by-ids', (_e, ids: number[]) => getTracksByIds(ids))
@@ -2434,8 +2522,9 @@ app.whenReady().then(() => {
 
   ipcMain.handle('db:insert-track', (_e, track: Record<string, unknown>) => {
     try {
-      const result = insertTrack(track) as { lastInsertRowid: number | bigint }
+      const result = insertTrack(track) as { lastInsertRowid: number | bigint; wasInserted: boolean }
       const id = Number(result.lastInsertRowid)
+      if (result.wasInserted && id > 0) processNewArtists([id])
       return { ok: true, id }
     } catch (err) {
       console.error('db:insert-track failed:', err)
@@ -2476,7 +2565,7 @@ app.whenReady().then(() => {
   // dropping the DB row. An ENOENT (file already gone from disk) is not
   // treated as failure — the desired end state already holds — but any
   // other trash error (permissions, file in use) aborts before touching the
-  // DB, so a track never silently disappears from CrateCloud while its file
+  // DB, so a track never silently disappears from DeepCrated while its file
   // is left behind untouched.
   ipcMain.handle('db:delete-track', async (_e, id: number, deleteFile: boolean) => {
     try {
@@ -2516,6 +2605,9 @@ app.whenReady().then(() => {
 
     try {
       const result = await analyzeFile(filepath, onProgress)
+      // Only a track the caller named can be recorded against. The returned
+      // data carries analysis_issue either way, so the renderer can show it.
+      if (trackId !== undefined) recordAnalysisOutcome(event.sender, trackId, result)
       return { ok: true, data: result }
     } catch (err) {
       console.error('sidecar:analyze failed:', err)
@@ -3298,9 +3390,14 @@ app.whenReady().then(() => {
 
   // ── Settings ─────────────────────────────────────────────
 
-  ipcMain.handle('settings:get', (_e, key: string) => getSetting(key))
+  // Keys under the stats_ prefix (consent state, the anonymous install id)
+  // are owned by the stats system and are not reachable from the renderer.
+  ipcMain.handle('settings:get', (_e, key: string) =>
+    isReservedSettingKey(key) ? null : getSetting(key)
+  )
 
   ipcMain.handle('settings:set', (_e, key: string, value: string) => {
+    if (isReservedSettingKey(key)) return { ok: false, error: 'This setting is not writable' }
     try {
       setSetting(key, value)
       return { ok: true }
@@ -3312,8 +3409,96 @@ app.whenReady().then(() => {
   // Deleting a key that was never there is a no-op, not an error — a caller
   // tidying up after itself should not have to check first.
   ipcMain.handle('settings:delete', (_e, key: string) => {
+    if (isReservedSettingKey(key)) return { ok: false, error: 'This setting is not writable' }
     try {
       deleteSetting(key)
+      return { ok: true }
+    } catch (err) {
+      return { ok: false, error: (err as Error).message }
+    }
+  })
+
+  // ── Artist-name cleanup ──────────────────────────────────
+  // Import-time cleanup runs from the import paths themselves
+  // (processNewArtists). These handlers are the inbox and the re-clean.
+  ipcMain.handle('artist:suggestions', () => ({
+    groups: artistCleaner.suggestionGroups(),
+    mode: artistCleaner.mode()
+  }))
+
+  const guard = async <T>(fn: () => Promise<T> | T): Promise<{ ok: true; result: T } | { ok: false; error: string }> => {
+    try {
+      return { ok: true, result: await fn() }
+    } catch (err) {
+      return { ok: false, error: (err as Error).message }
+    }
+  }
+
+  ipcMain.handle('artist:accept', (_e, raw: unknown) =>
+    typeof raw === 'string' ? guard(() => artistCleaner.acceptGroup(raw)) : { ok: false, error: 'Invalid name' }
+  )
+  ipcMain.handle('artist:edit', (_e, raw: unknown, name: unknown) =>
+    typeof raw === 'string' && typeof name === 'string'
+      ? guard(() => artistCleaner.acceptGroup(raw, name))
+      : { ok: false, error: 'Invalid name' }
+  )
+  ipcMain.handle('artist:keep', (_e, raw: unknown) =>
+    typeof raw === 'string' ? guard(() => artistCleaner.keepGroup(raw)) : { ok: false, error: 'Invalid name' }
+  )
+  ipcMain.handle('artist:restore-original', (_e, trackId: unknown) =>
+    Number.isInteger(trackId) ? artistCleaner.restoreOriginal(trackId as number) : { ok: false, error: 'Invalid track' }
+  )
+  ipcMain.handle('artist:reclean-preview', () => guard(() => artistCleaner.previewReclean()))
+  ipcMain.handle('artist:reclean-approve-high', () => guard(() => artistCleaner.approveHigh()))
+  ipcMain.handle('artist:reclean-queue-review', () => guard(() => artistCleaner.queueReview()))
+  ipcMain.handle('artist:undo', () => guard(() => artistCleaner.undoLastBatch()))
+  ipcMain.handle('artist:undo-info', () => artistCleaner.undoInfo())
+
+  // ── Track identity (background backfill) ─────────────────
+  ipcMain.handle('identity:get-status', () => getIdentityStatus())
+  ipcMain.handle('identity:kick', () => {
+    kickIdentity()
+    return { ok: true }
+  })
+
+  // ── Privacy / anonymous stats ────────────────────────────
+  // The renderer can read the consent state and flip it, and mark items
+  // private. It never sees the install id or the queue, and there is no
+  // channel for canCollect — collection is decided in main only.
+
+  ipcMain.handle('privacy:get-consent', () => statsGetConsent())
+
+  ipcMain.handle('privacy:set-consent', (_e, enabled: unknown) => {
+    if (typeof enabled !== 'boolean') return { ok: false, error: 'Invalid value' }
+    try {
+      return { ok: true, state: statsSetConsent(enabled) }
+    } catch (err) {
+      return { ok: false, error: (err as Error).message }
+    }
+  })
+
+  ipcMain.handle('privacy:set-track-private', (_e, trackIds: unknown, value: unknown) => {
+    if (
+      !Array.isArray(trackIds) ||
+      !trackIds.every((id) => Number.isInteger(id)) ||
+      typeof value !== 'boolean'
+    ) {
+      return { ok: false, error: 'Invalid arguments' }
+    }
+    try {
+      statsSetTracksPrivate(trackIds as number[], value)
+      return { ok: true }
+    } catch (err) {
+      return { ok: false, error: (err as Error).message }
+    }
+  })
+
+  ipcMain.handle('privacy:set-crate-private', (_e, crateId: unknown, value: unknown) => {
+    if (!Number.isInteger(crateId) || typeof value !== 'boolean') {
+      return { ok: false, error: 'Invalid arguments' }
+    }
+    try {
+      statsSetCratePrivate(crateId as number, value)
       return { ok: true }
     } catch (err) {
       return { ok: false, error: (err as Error).message }
@@ -3397,6 +3582,7 @@ app.whenReady().then(() => {
         const partialHash = await computePartialHash(filepath)
         const insertResult = insertTrack({ ...trackData, partial_hash: partialHash }) as {
           lastInsertRowid: number | bigint
+          wasInserted: boolean
         }
         const trackId = Number(insertResult.lastInsertRowid)
 
@@ -3404,6 +3590,7 @@ app.whenReady().then(() => {
           const hash = await storeArtwork(Buffer.from(result.artwork_base64, 'base64'))
           if (hash) setTrackArtworkHash(trackId, hash)
         }
+        if (insertResult.wasInserted && trackId > 0) processNewArtists([trackId])
 
         // Queue as pending change for DJ to review
         insertPendingChange({
@@ -3500,7 +3687,7 @@ app.whenReady().then(() => {
     // Directory appeared — mirror it into `folders` (and any missing
     // ancestors, via ensureFolderTree) the same way fs:create-folder and
     // import already do. If this is the watcher catching up with a folder
-    // CrateCloud itself just created, ensureFolderTree's relative_path
+    // DeepCrated itself just created, ensureFolderTree's relative_path
     // UNIQUE constraint makes the second call a no-op reuse, not a
     // duplicate row.
     onDirAdded: async (dirpath, rootId) => {
@@ -3629,6 +3816,17 @@ app.whenReady().then(() => {
 app.on('before-quit', async () => {
   stopSessionRefresh()
   await stopAllWatchers()
+})
+
+// Electron does not wait on an async before-quit listener, so the final stats
+// upload holds the quit itself: cancel it once, flush (capped at a few
+// seconds), then quit again. Skipped entirely when there is nothing to send.
+let statsFlushed = false
+app.on('before-quit', (event) => {
+  if (statsFlushed || !shouldFlushOnQuit()) return
+  statsFlushed = true
+  event.preventDefault()
+  void flushStatsOnQuit().finally(() => app.quit())
 })
 
 // Quit when all windows are closed, except on macOS. There, it's common

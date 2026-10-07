@@ -1,5 +1,7 @@
 import React from 'react'
 import { useLibraryStore } from '../store/useLibraryStore'
+import { IdentityProgressRow } from './IdentityProgressRow'
+import { ArtistCleanProgressRow } from './ArtistCleanProgressRow'
 
 // Round to whole minutes — never show seconds ticking
 function formatEstimate(seconds: number): string {
@@ -199,10 +201,19 @@ export function BackgroundJobsPanel({
   const jobs = useLibraryStore((s) => s.jobs)
   const jobList = Object.values(jobs)
 
-  if (jobList.length === 0) return null
+  if (jobList.length === 0) {
+    return (
+      <>
+        <ArtistCleanProgressRow />
+        <IdentityProgressRow />
+      </>
+    )
+  }
 
   return (
     <>
+      <ArtistCleanProgressRow />
+      <IdentityProgressRow />
       {jobList.map((job) => {
         if (job.type === 'move') {
           const pct = job.total > 0 ? Math.round((job.done / job.total) * 100) : 0

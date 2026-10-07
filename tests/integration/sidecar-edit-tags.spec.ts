@@ -14,7 +14,7 @@ import {
 } from '../helpers/audio'
 import { hasSidecarVenv } from '../helpers/paths'
 
-// Covers sidecar/edit_tags.py — the only thing in CrateCloud that writes
+// Covers sidecar/edit_tags.py — the only thing in DeepCrated that writes
 // metadata into the audio file itself, and therefore the only thing that
 // can ever make an edit visible to Serato, Rekordbox or Finder.
 
@@ -24,7 +24,7 @@ test.skip(!hasFfmpeg(), 'ffmpeg is required to generate audio fixtures')
 let workDir: string
 
 test.beforeEach(() => {
-  workDir = makeTempDir('cratecloud-tags-')
+  workDir = makeTempDir('deepcrated-tags-')
 })
 
 test.afterEach(() => {
@@ -115,7 +115,7 @@ const EXPECTED_FIELDS: Record<AudioExt, string[]> = {
   // MP4 has no standard frame for key, label or remixer — edit_m4a writes all
   // three as iTunes freeform atoms instead (see edit_tags.py). Serato reads
   // `initialkey` back but ignores an MP4's label and remixer, so those two
-  // survive in the file and in CrateCloud without ever showing up in Serato.
+  // survive in the file and in DeepCrated without ever showing up in Serato.
   m4a: [
     'title',
     'artist',

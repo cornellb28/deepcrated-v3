@@ -6,6 +6,9 @@ import { Button } from '@renderer/components/ui/button'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@renderer/components/ui/tabs'
 import { ReconciliationModal } from '@renderer/components/ReconciliationModal'
 import { SeratoImportConfirmDialog } from '@renderer/components/SeratoImportConfirmDialog'
+import { StatsConsentSwitch } from '../components/StatsConsentSwitch'
+import { IdentityLookupSwitch } from '../components/IdentityLookupSwitch'
+import { ArtistCleanSettings } from '../components/ArtistCleanSettings'
 import { useLibraryStore } from '../store/useLibraryStore'
 import { FilenameTemplateEditor } from '../components/FilenameTemplateEditor'
 import { describePlan } from '../lib/plan'
@@ -37,16 +40,23 @@ const SERATO_OVERWRITE_KEY = 'serato_overwrite_existing'
 // whichever tab was open last.
 export const SETTINGS_TAB_KEY = 'settings_tab'
 
-type TabId = 'account' | 'plan' | 'library' | 'serato'
+type TabId = 'account' | 'plan' | 'library' | 'serato' | 'privacy'
 const TABS: { id: TabId; label: string }[] = [
   { id: 'account', label: 'Account' },
   { id: 'plan', label: 'Plan' },
   { id: 'library', label: 'Library' },
-  { id: 'serato', label: 'Serato' }
+  { id: 'serato', label: 'Serato' },
+  { id: 'privacy', label: 'Privacy' }
 ]
 
 function isTabId(value: string | null): value is TabId {
-  return value === 'account' || value === 'plan' || value === 'library' || value === 'serato'
+  return (
+    value === 'account' ||
+    value === 'plan' ||
+    value === 'library' ||
+    value === 'serato' ||
+    value === 'privacy'
+  )
 }
 
 const UPGRADE_URL = import.meta.env.RENDERER_VITE_UPGRADE_URL
@@ -457,7 +467,7 @@ export function SettingsView({
           <TabsContent value="library">
             <Section
               title="Library folders"
-              description="The folders CrateCloud watches. Each is scanned on import and kept current by the live watcher."
+              description="The folders DeepCrated watches. Each is scanned on import and kept current by the live watcher."
             >
               {libraryRoots.length === 0 ? (
                 <div style={{ fontSize: '12px', color: '#444' }}>No folders registered yet.</div>
@@ -588,6 +598,13 @@ export function SettingsView({
             </Section>
 
             <Section
+              title="Artist names"
+              description="Tidy artist names as tracks are imported, so one artist is spelled one way. Your original spelling is always kept."
+            >
+              <ArtistCleanSettings />
+            </Section>
+
+            <Section
               title="Pending changes"
               description="Files the watcher saw appear, move or vanish while the app was running, waiting on your review."
               last
@@ -677,6 +694,24 @@ export function SettingsView({
                 </div>
                 Overwrite existing crate of the same name
               </label>
+            </Section>
+          </TabsContent>
+
+          {/* ── Privacy ─────────────────────────────────────────────── */}
+          <TabsContent value="privacy">
+            <Section
+              title="Anonymous stats"
+              description="Off unless you turn it on. Separate from your account: nothing shared is tied to who you are. You can also mark any track or crate Keep private."
+            >
+              <StatsConsentSwitch />
+            </Section>
+
+            <Section
+              title="Track identification"
+              description="Recognizing tracks by their audio, so the same song is the same song everywhere."
+              last
+            >
+              <IdentityLookupSwitch />
             </Section>
           </TabsContent>
         </div>

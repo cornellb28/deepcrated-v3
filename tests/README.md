@@ -1,4 +1,4 @@
-# CrateCloud tests
+# DeepCrated tests
 
 ```bash
 npm test              # unit + integration (the default suite)
@@ -57,10 +57,10 @@ prove the reader agrees with itself.
 ## What the metadata specs pin down
 
 `tests/integration/metadata-sync.spec.ts` and `tests/integration/tag-writes.spec.ts`
-exist because a CrateCloud edit has to land in two places to be worth
+exist because a DeepCrated edit has to land in two places to be worth
 anything: the SQLite row, so the app still shows it next launch, and the
 audio file's own tags, so Serato, Rekordbox or Finder can ever see it. A
-write that reaches only one of them looks completely fine inside CrateCloud
+write that reaches only one of them looks completely fine inside DeepCrated
 and is invisible everywhere else.
 
 Four failure modes they guard against, each of which was a live bug:

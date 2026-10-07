@@ -1,5 +1,6 @@
 import { spawn } from 'child_process'
 import { join } from 'path'
+import { classifyAnalysis, type AnalysisIssue } from './analysisIssue'
 import { app } from 'electron'
 
 // ─── Find the Python executable ──────────────────────────
@@ -76,9 +77,15 @@ function consumeProgress(
 
 // ─── Core bridge function ─────────────────────────────────
 
+// A decode that has not finished by now is stuck, not slow. Without a limit
+// one hung file holds its worker slot (and, in a batch, the whole batch)
+// forever. Generous on purpose: a long DJ mix legitimately takes a while.
+export const ANALYSIS_TIMEOUT_MS = 120_000
+
 export function analyzeFile(
   filepath: string,
-  onProgress?: (stage: AnalysisStage) => void
+  onProgress?: (stage: AnalysisStage) => void,
+  timeoutMs: number = ANALYSIS_TIMEOUT_MS
 ): Promise<AnalysisResult> {
   return new Promise((resolve, reject) => {
     const python = getPython()
@@ -95,6 +102,12 @@ export function analyzeFile(
 
     let stdout = ''
     let stderr = ''
+    let timedOut = false
+
+    const timer = setTimeout(() => {
+      timedOut = true
+      child.kill('SIGKILL')
+    }, timeoutMs)
 
     // Collect stdout chunks as they arrive
     child.stdout.on('data', (chunk: Buffer) => {
@@ -114,6 +127,19 @@ export function analyzeFile(
 
     // Python has finished — parse the result
     child.on('close', (code) => {
+      clearTimeout(timer)
+      if (timedOut) {
+        // A definite outcome about the file, not a sidecar fault: resolved
+        // rather than rejected so the caller records it like any other.
+        console.warn(`Sidecar timed out after ${timeoutMs} ms: ${filepath}`)
+        resolve({
+          success: false,
+          error: 'Analysis timed out',
+          filepath,
+          analysis_issue: 'timeout'
+        } as AnalysisResult)
+        return
+      }
       // A final line with no trailing newline is still a real warning.
       if (stderrPending && !stderrPending.startsWith(PROGRESS_SENTINEL)) {
         stderr += stderrPending
@@ -122,7 +148,9 @@ export function analyzeFile(
       if (stderr) {
         // Log warnings but do not fail — they are usually
         // librosa deprecation notices, not real errors
-        console.warn('Sidecar stderr:', stderr.trim())
+        // The path is named: these lines come from decoders (mpg123, ffmpeg)
+        // that never say which file they are complaining about.
+        console.warn(`Sidecar stderr [${filepath}]:`, stderr.trim())
       }
 
       if (!stdout) {
@@ -132,6 +160,7 @@ export function analyzeFile(
 
       try {
         const result = JSON.parse(stdout) as AnalysisResult
+        result.analysis_issue = classifyAnalysis(result, stderr)
         resolve(result)
       } catch {
         reject(new Error(`Failed to parse sidecar output: ${stdout.slice(0, 200)}`))
@@ -140,6 +169,7 @@ export function analyzeFile(
 
     // Handle spawn errors — e.g. Python not found
     child.on('error', (err) => {
+      clearTimeout(timer)
       reject(new Error(`Failed to start sidecar: ${err.message}`))
     })
   })
@@ -176,6 +206,59 @@ export function readTagsFast(filepath: string): Promise<AnalysisResult> {
   })
 }
 
+// ─── Identity tags, in bulk ───────────────────────────────
+// One sidecar process for a whole batch of paths: read_tags() per file would
+// start a bundled executable per file, seconds each, which is what makes
+// backfilling a large library impractical. See run_identity_batch in
+// analyze.py. Paths go in on stdin, one per line; results come back one JSON
+// line each.
+export interface IdentityTagLine {
+  filepath: string
+  ok: boolean
+  isrc: string | null
+  musicbrainz_recording_id: string | null
+}
+
+const IDENTITY_BATCH_TIMEOUT_MS = 120_000
+
+export function readIdentityTags(filepaths: string[]): Promise<IdentityTagLine[]> {
+  return new Promise((resolve, reject) => {
+    const python = getPython()
+    const args = app.isPackaged
+      ? ['--identity-batch']
+      : [getSidecarPath(), '--identity-batch']
+    const child = spawn(python, args, {
+      stdio: ['pipe', 'pipe', 'ignore'],
+      // Paths with non-ASCII characters must survive stdin on Windows too.
+      env: { ...process.env, PYTHONIOENCODING: 'utf-8' }
+    })
+    let stdout = ''
+    const timer = setTimeout(() => child.kill(), IDENTITY_BATCH_TIMEOUT_MS)
+    child.stdout.on('data', (chunk) => {
+      stdout += chunk.toString()
+    })
+    child.on('error', (err) => {
+      clearTimeout(timer)
+      reject(new Error(`Failed to start sidecar: ${err.message}`))
+    })
+    child.on('close', () => {
+      clearTimeout(timer)
+      const lines: IdentityTagLine[] = []
+      for (const line of stdout.split('\n')) {
+        if (!line.trim()) continue
+        try {
+          lines.push(JSON.parse(line) as IdentityTagLine)
+        } catch {
+          // A garbled line costs one track its identity read this run.
+        }
+      }
+      resolve(lines)
+    })
+    child.stdin.on('error', () => {})
+    child.stdin.end(filepaths.join('\n') + '\n')
+  })
+}
+
 // ─── Type for the result ──────────────────────────────────
 
 export interface AnalysisResult {
@@ -206,6 +289,17 @@ export interface AnalysisResult {
   // that ever needs them (import-time reconcile; see buildTrackData).
   file_size_bytes?: number | null
   client_uuid?: string | null
+  // Raw identity tags from read_tags(): validated and normalized in main
+  // (identity/canonical.ts) before they can become part of an id.
+  isrc?: string | null
+  musicbrainz_recording_id?: string | null
+  // From analyze.py. error_code is set on a decode failure; the expected
+  // duration is the file header's own claim (null when it is not trustworthy).
+  error_code?: string
+  expected_duration_sec?: number | null
+  // Set here, not by Python: what this run says about the FILE itself. null
+  // = nothing wrong. See analysisIssue.ts.
+  analysis_issue?: AnalysisIssue | null
 }
 
 // ─── Batch tag editing ─────────────────────────────────────
