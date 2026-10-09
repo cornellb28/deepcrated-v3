@@ -675,7 +675,7 @@ export function SettingsView({
 
             <Section
               title="Track identification"
-              description="Recognizing tracks by their audio, so the same song is the same song everywhere."
+              description="DeepCrated reads ID tags and makes an audio fingerprint on your computer to recognize the same song across files. Nothing leaves your device unless you turn on the option below."
               last
             >
               <IdentityLookupSwitch />

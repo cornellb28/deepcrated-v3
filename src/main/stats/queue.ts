@@ -45,10 +45,11 @@ export function createStatsQueue(
 
         if (!consent.canCollect(trackId, crateId)) return false
 
-        // A track-scoped event is stamped with the track's canonical id here,
-        // from the database, replacing anything the caller put in the payload.
-        // No id yet (not read, not fingerprinted) means no event: a local id
-        // or path is never a substitute.
+        // A track-scoped event is stamped with the track's stats id here, from
+        // the database, replacing anything the caller put in the payload. It
+        // never uses a recording id the online lookup found, so that toggle
+        // cannot change what is sent. No id yet (not read, not fingerprinted)
+        // means no event: a local id or path is never a substitute.
         let withIdentity = payload
         if (
           typeof eventType === 'string' &&
@@ -59,7 +60,7 @@ export function createStatsQueue(
           !Array.isArray(payload)
         ) {
           if (trackId === null) return false
-          const canonical = store.getCanonicalTrackId(trackId)
+          const canonical = store.getStatsTrackId(trackId)
           if (!canonical) return false
           withIdentity = { ...payload, [CANONICAL_ID_FIELD]: canonical }
         }

@@ -1,8 +1,9 @@
 // ── Track identity: normalizers and the canonical ID ──────────────────────
-// canonical_track_id is the one track identifier that may leave the device
-// (in anonymous stats). It is built only from public recording identifiers,
-// never from a path, filename or local id, and is prefixed so the three
-// namespaces cannot collide:
+// canonical_track_id is built only from public recording identifiers, never
+// from a path, filename or local id, and is prefixed so the three namespaces
+// cannot collide. Anonymous stats sends the same shape, but computed by
+// computeStatsTrackId below, which never uses a recording id the online
+// lookup found:
 //
 //   isrc:USRC17607839            from the file's ISRC tag
 //   mbid:<recording uuid>        a MusicBrainz recording id (tag or lookup)
@@ -70,4 +71,26 @@ export function computeCanonicalTrackId(inputs: IdentityInputs): string | null {
   const fp = inputs.fingerprint_hash
   if (typeof fp === 'string' && FP_HASH_PATTERN.test(fp)) return `fp:${fp}`
   return null
+}
+
+// Where tracks.musicbrainz_recording_id came from: the file's own tags, or
+// the optional online lookup (Settings > Privacy > Identify tracks online).
+export type RecordingIdSource = 'tag' | 'lookup'
+
+export interface StatsIdInputs extends IdentityInputs {
+  recording_id_source?: RecordingIdSource | string | null
+}
+
+// The id anonymous stats carries. Same priority and shapes as
+// computeCanonicalTrackId, except a recording id is used only when it came
+// from the file's tags. A looked-up one is skipped in favour of the
+// fingerprint hash, so the two privacy settings stay independent: turning
+// the lookup on or off never changes what stats sends for a track.
+export function computeStatsTrackId(inputs: StatsIdInputs): string | null {
+  return computeCanonicalTrackId({
+    isrc: inputs.isrc,
+    musicbrainz_recording_id:
+      inputs.recording_id_source === 'tag' ? inputs.musicbrainz_recording_id : null,
+    fingerprint_hash: inputs.fingerprint_hash
+  })
 }

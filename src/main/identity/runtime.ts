@@ -46,6 +46,12 @@ let running = false
 let lastStatus: IdentityStatus | null = null
 let timer: ReturnType<typeof setInterval> | null = null
 
+// Release builds and CI deliberately ship without these credentials, so the
+// toggle shows "Not available in this build." — keep it that way.
+// TODO(deepcrated): DeepCrated uses AcoustID and MusicBrainz under their
+// non-commercial terms because the desktop app is free. Revisit commercial
+// terms (and a key per install vs. one shared key) before any paid feature
+// depends on this lookup.
 function lookupConfig(): LookupConfig | null {
   const config = {
     acoustidKey: ACOUSTID_KEY,

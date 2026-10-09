@@ -3,7 +3,13 @@
 // schema and migrations stay in db.ts and this file is only the queries.
 
 import type Database from 'better-sqlite3'
-import { computeCanonicalTrackId, fingerprintHash, normalizeIsrc, normalizeMbid } from './canonical'
+import {
+  computeCanonicalTrackId,
+  computeStatsTrackId,
+  fingerprintHash,
+  normalizeIsrc,
+  normalizeMbid
+} from './canonical'
 import type {
   FingerprintStatus,
   IdentityProgress,
@@ -31,6 +37,18 @@ export function refreshCanonicalTrackId(db: Database.Database, trackId: number):
   return canonical
 }
 
+// The id anonymous stats carries for a track (see computeStatsTrackId):
+// computed on read, never stored, so it cannot drift from its inputs.
+export function readStatsTrackId(db: Database.Database, trackId: number): string | null {
+  const row = db
+    .prepare(
+      `SELECT isrc, musicbrainz_recording_id, recording_id_source, fingerprint_hash
+       FROM tracks WHERE id = ?`
+    )
+    .get(trackId) as (IdentityRow & { recording_id_source: string | null }) | undefined
+  return row ? computeStatsTrackId(row) : null
+}
+
 export function createSqliteIdentityStore(db: Database.Database): IdentityStore {
   return {
     tracksNeedingTags(limit: number): TrackRef[] {
@@ -45,15 +63,19 @@ export function createSqliteIdentityStore(db: Database.Database): IdentityStore 
 
     // Whatever the file said is validated here, so a malformed tag can never
     // reach the id.
+    // A recording id from the tags is marked 'tag'; no id in the tags leaves
+    // whatever was there, source included.
     setIdentityTags(trackId, isrc, recordingId): void {
       db.transaction(() => {
         db.prepare(
           `UPDATE tracks SET
-             isrc = COALESCE(?, isrc),
-             musicbrainz_recording_id = COALESCE(?, musicbrainz_recording_id),
+             isrc = COALESCE(@isrc, isrc),
+             musicbrainz_recording_id = COALESCE(@mbid, musicbrainz_recording_id),
+             recording_id_source = CASE WHEN @mbid IS NOT NULL THEN 'tag'
+                                        ELSE recording_id_source END,
              identity_tags_read = 1
-           WHERE id = ?`
-        ).run(normalizeIsrc(isrc), normalizeMbid(recordingId), trackId)
+           WHERE id = @id`
+        ).run({ isrc: normalizeIsrc(isrc), mbid: normalizeMbid(recordingId), id: trackId })
         refreshCanonicalTrackId(db, trackId)
       })()
     },
@@ -118,7 +140,7 @@ export function createSqliteIdentityStore(db: Database.Database): IdentityStore 
       if (!mbid) return
       db.transaction(() => {
         db.prepare(
-          `UPDATE tracks SET musicbrainz_recording_id = ?
+          `UPDATE tracks SET musicbrainz_recording_id = ?, recording_id_source = 'lookup'
            WHERE id = ? AND musicbrainz_recording_id IS NULL`
         ).run(mbid, trackId)
         refreshCanonicalTrackId(db, trackId)

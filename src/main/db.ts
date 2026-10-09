@@ -679,10 +679,12 @@ db.exec(`
 
 // ─── Track identity (shareable ids) ──────────────────────────────────────────
 // A track's local id and filepath mean nothing off this machine. These
-// columns hold public recording identifiers instead, and canonical_track_id
-// is the one value stats may carry (see identity/canonical.ts).
+// columns hold public recording identifiers instead. canonical_track_id is
+// the local id; stats carries the same shape, minus any looked-up recording
+// id (see identity/canonical.ts computeStatsTrackId).
 //   isrc / musicbrainz_recording_id  read from the file's tags (or, for the
-//                                    recording id, resolved by lookup)
+//                                    recording id, resolved by lookup;
+//                                    recording_id_source says which)
 //   acoustid_fingerprint             Chromaprint fingerprint, kept locally
 //   fingerprint_hash                 hash of it; the only form that can be
 //                                    part of an id
@@ -706,6 +708,29 @@ const identityColumns: [string, string][] = [
   )
   for (const [name, type] of identityColumns) {
     if (!have.has(name)) db.exec(`ALTER TABLE tracks ADD COLUMN ${name} ${type}`)
+  }
+
+  // recording_id_source: where musicbrainz_recording_id came from. 'tag' =
+  // the file's own tags, 'lookup' = the optional AcoustID/MusicBrainz lookup.
+  // NULL whenever there is no recording id. Stats only ever uses a 'tag'
+  // recording id (identity/canonical.ts computeStatsTrackId), so the lookup
+  // toggle cannot change what anonymous stats sends. Here, after the block
+  // above, because musicbrainz_recording_id itself is added there.
+  if (!have.has('recording_id_source')) {
+    db.transaction(() => {
+      db.exec(`ALTER TABLE tracks ADD COLUMN recording_id_source TEXT
+                 CHECK (recording_id_source IN ('tag', 'lookup'))`)
+      // One-time backfill, in the same transaction as the column so it can
+      // only ever run once. A recording id on a fingerprinted track can only
+      // have come from the lookup (tagged tracks are never fingerprinted). The
+      // rare tag added after fingerprinting reads as 'lookup' — the safe way
+      // round: stats falls back to the fingerprint id — and becomes 'tag' the
+      // next time the file is re-read.
+      db.exec(`UPDATE tracks
+                 SET recording_id_source =
+                   CASE WHEN fingerprint_hash IS NOT NULL THEN 'lookup' ELSE 'tag' END
+               WHERE musicbrainz_recording_id IS NOT NULL`)
+    })()
   }
 }
 db.exec(`
@@ -754,7 +779,7 @@ const stmts = {
       bpm, key_camelot, key_full, camelot, openkey,
       duration_sec, duration_str, file_size_bytes, format,
       artwork_path, analyzed_at, board_id, folder_id, client_uuid, partial_hash,
-      last_modified, isrc, musicbrainz_recording_id, identity_tags_read
+      last_modified, isrc, musicbrainz_recording_id, recording_id_source, identity_tags_read
      )
       VALUES (
        @filepath, @filename, @title, @artist, @album, @genre,
@@ -762,7 +787,7 @@ const stmts = {
        @bpm, @key_camelot, @key_full, @camelot, @openkey,
        @duration_sec, @duration_str, @file_size_bytes, @format,
        @artwork_path, @analyzed_at, @board_id, @folder_id, @client_uuid, @partial_hash,
-       @last_modified, @isrc, @musicbrainz_recording_id, @identity_tags_read
+       @last_modified, @isrc, @musicbrainz_recording_id, @recording_id_source, @identity_tags_read
       )
        ON CONFLICT(filepath) DO UPDATE SET
          title           = excluded.title,
@@ -796,6 +821,10 @@ const stmts = {
          -- read tags (null) must never blank one an earlier scan found.
          isrc            = COALESCE(excluded.isrc, isrc),
          musicbrainz_recording_id = COALESCE(excluded.musicbrainz_recording_id, musicbrainz_recording_id),
+         -- Follows the line above: a tag-read id replaces the old one (and
+         -- whatever its source was); no id read keeps both.
+         recording_id_source = CASE WHEN excluded.musicbrainz_recording_id IS NOT NULL
+                                    THEN 'tag' ELSE recording_id_source END,
          identity_tags_read = MAX(identity_tags_read, excluded.identity_tags_read)
     `),
   // COALESCE, not a plain overwrite: importSingleFile always inserts with
@@ -1163,6 +1192,8 @@ export function insertTrack(
     // renderer's db:insert-track) leaves it for the backfill.
     isrc: normalizeIsrc(track.isrc),
     musicbrainz_recording_id: normalizeMbid(track.musicbrainz_recording_id),
+    // Whatever arrives here was read from the file, never looked up online.
+    recording_id_source: normalizeMbid(track.musicbrainz_recording_id) ? 'tag' : null,
     identity_tags_read: 'isrc' in track || 'musicbrainz_recording_id' in track ? 1 : 0
   }
   const result = stmts.insertTrack.run(safe)
