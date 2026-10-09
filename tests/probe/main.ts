@@ -12,7 +12,7 @@
 // resolve the way they do in production.
 
 import { app } from 'electron'
-import { mkdirSync, readFileSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 
 interface ProbeOp {
   fn: string
@@ -160,6 +160,10 @@ async function run(): Promise<void> {
     setSetting: ((key: string, value: string) => db.setSetting(key, value)) as unknown as (
       ...args: never[]
     ) => unknown,
+    // The DJ's pick for a held file, with the real file-exists check (a
+    // function cannot travel in the JSON ops).
+    relinkHeldFileOnDisk: ((changeId: number) =>
+      db.relinkHeldFile(changeId, existsSync)) as unknown as (...args: never[]) => unknown,
 
     // sweepTracks takes a Set, which does not survive JSON on the way in —
     // a spec sends the plain array of walked paths instead.

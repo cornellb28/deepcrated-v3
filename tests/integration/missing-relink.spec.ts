@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test'
-import { rmSync } from 'fs'
+import { rmSync, writeFileSync } from 'fs'
+import { join } from 'path'
 import { makeTempDir } from '../helpers/audio'
 import { hasElectron } from '../helpers/paths'
 import { createProbeSession, unwrap, type ProbeOp, type ProbeSession } from '../helpers/probe'
@@ -196,4 +197,144 @@ test('a relinked track drops out of the reconcile pool', async () => {
   ])
 
   expect(pool).toEqual([])
+})
+
+// ── Held files: a canonical id that fits more than one missing track ──────
+// Nothing is relinked or imported on its own; the DJ picks. These run the
+// real pending_changes rows and the real relink.
+
+interface HeldRow {
+  id: number
+  change_type: string
+  old_path: string | null
+  new_path: string | null
+  track_id: number | null
+  status: string
+}
+
+const ISRC = 'USRC17607839'
+
+function seedTwoMissingSameIsrc(): ProbeOp[] {
+  const track = (n: number): ProbeOp => ({
+    fn: 'insertTrack',
+    args: [
+      {
+        filepath: `/music/House/Take ${n}.mp3`,
+        filename: `Take ${n}.mp3`,
+        title: `Take ${n}`,
+        folder_id: 1,
+        file_size_bytes: 4096 + n,
+        duration_sec: 180,
+        isrc: ISRC
+      }
+    ]
+  })
+  return [
+    { fn: 'addRoot', args: ['Library', '/music'] },
+    { fn: 'ensureFolderTree', args: [1, ['House']] },
+    track(1),
+    track(2),
+    { fn: 'insertCrate', args: ['Warmup', null] },
+    { fn: 'addTracksToCrate', args: [1, [1]] },
+    { fn: 'markTrackMissing', args: ['/music/House/Take 1.mp3'] },
+    { fn: 'markTrackMissing', args: ['/music/House/Take 2.mp3'] }
+  ]
+}
+
+const candidates = [
+  { id: 1, filepath: '/music/House/Take 1.mp3' },
+  { id: 2, filepath: '/music/House/Take 2.mp3' }
+]
+
+test('the missing pool carries each track canonical id for reconcile', async () => {
+  const pool = await runLast<{ id: number; canonical_track_id: string | null }[]>([
+    ...seedTwoMissingSameIsrc(),
+    { fn: 'getMissingTracks', args: [1] }
+  ])
+  expect(pool.map((m) => m.canonical_track_id)).toEqual([`isrc:${ISRC}`, `isrc:${ISRC}`])
+})
+
+test('a held file gets one row per candidate, once, and is neither imported nor relinked', async () => {
+  const newPath = join(workDir, 'Take.mp3')
+  writeFileSync(newPath, 'audio')
+  const r = await run<unknown>([
+    ...seedTwoMissingSameIsrc(),
+    { fn: 'holdForRelinkReview', args: [1, newPath, candidates] },
+    { fn: 'holdForRelinkReview', args: [1, newPath, candidates] }, // a rescan
+    { fn: 'getPendingChanges' },
+    { fn: 'getTrackByFilepath', args: [newPath] },
+    { fn: 'getMissingTracks', args: [1] }
+  ])
+  const n = seedTwoMissingSameIsrc().length
+  expect(r[n]).toBe(true)
+  expect(r[n + 1]).toBe(false)
+  const rows = r[n + 2] as HeldRow[]
+  expect(rows.map((c) => [c.change_type, c.track_id, c.new_path])).toEqual([
+    ['possible_relink', 1, newPath],
+    ['possible_relink', 2, newPath]
+  ])
+  expect(r[n + 3]).toBeNull() // not imported (undefined arrives as null)
+  expect((r[n + 4] as unknown[]).length).toBe(2) // both still missing
+})
+
+test('picking a candidate relinks that track, keeps its crate, and closes the other choice', async () => {
+  const newPath = join(workDir, 'Take.mp3')
+  writeFileSync(newPath, 'audio')
+  const seeded = await run<unknown>([
+    ...seedTwoMissingSameIsrc(),
+    { fn: 'holdForRelinkReview', args: [1, newPath, candidates] },
+    { fn: 'getPendingChanges' }
+  ])
+  const rows = seeded[seeded.length - 1] as HeldRow[]
+  const pick = rows.find((c) => c.track_id === 1) as HeldRow
+
+  const r = await run<unknown>([
+    { fn: 'relinkHeldFileOnDisk', args: [pick.id] },
+    { fn: 'getTrackById', args: [1] },
+    { fn: 'getCrateTracks', args: [1] },
+    { fn: 'getMissingTracks', args: [1] },
+    { fn: 'getPendingChanges' },
+    { fn: 'relinkHeldFileOnDisk', args: [pick.id] } // a second click
+  ])
+  expect(r[0]).toMatchObject({ ok: true, trackId: 1, newPath })
+  expect(r[1]).toMatchObject({ filepath: newPath, missing: 0 })
+  expect((r[2] as { id: number }[]).map((t) => t.id)).toEqual([1])
+  expect((r[3] as { id: number }[]).map((t) => t.id)).toEqual([2]) // the other is untouched
+  expect(r[4]).toEqual([]) // nothing left waiting
+  expect(r[5]).toMatchObject({ ok: false })
+})
+
+test('a pick is refused, and nothing changes, when the file has gone or the track was found', async () => {
+  const gonePath = join(workDir, 'Gone.mp3') // never written
+  const seeded = await run<unknown>([
+    ...seedTwoMissingSameIsrc(),
+    { fn: 'holdForRelinkReview', args: [1, gonePath, candidates] },
+    { fn: 'getPendingChanges' }
+  ])
+  const rows = seeded[seeded.length - 1] as HeldRow[]
+  const r = await run<unknown>([
+    { fn: 'relinkHeldFileOnDisk', args: [rows[0].id] },
+    { fn: 'getMissingTracks', args: [1] },
+    { fn: 'getPendingChanges' }
+  ])
+  expect(r[0]).toMatchObject({ ok: false, error: 'The file is no longer there.' })
+  expect((r[1] as unknown[]).length).toBe(2)
+  expect(r[2]).toEqual([]) // the stale choice is closed, not left dangling
+
+  // Track 1 turns up on its own (a normal relink) while a choice waits.
+  const newPath = join(workDir, 'Take.mp3')
+  writeFileSync(newPath, 'audio')
+  const again = await run<unknown>([
+    { fn: 'holdForRelinkReview', args: [1, newPath, candidates] },
+    { fn: 'relinkTrack', args: [1, '/music/House/Found.mp3'] },
+    { fn: 'getPendingChanges' }
+  ])
+  const waiting = again[2] as HeldRow[]
+  const stale = waiting.find((c) => c.track_id === 1) as HeldRow
+  const result = await runLast<{ ok: boolean; error?: string }>([
+    { fn: 'relinkHeldFileOnDisk', args: [stale.id] }
+  ])
+  expect(result.ok).toBe(false)
+  const after = await runLast<{ filepath: string }>([{ fn: 'getTrackById', args: [1] }])
+  expect(after.filepath).toBe('/music/House/Found.mp3')
 })

@@ -274,6 +274,7 @@ export function SettingsView({
       const parts: string[] = []
       if (result.imported) parts.push(`${result.imported} checked`)
       if (result.relinked) parts.push(`${result.relinked} relinked`)
+      if (result.needsReview) parts.push(`${result.needsReview} to review`)
       // Deliberately worded "missing", not "removed" — nothing was deleted.
       if (result.swept) parts.push(`${result.swept} now missing`)
       if (result.skippedRoots?.length) {

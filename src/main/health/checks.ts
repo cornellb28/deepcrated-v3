@@ -70,7 +70,12 @@ function bareField(field: 'genre' | 'artist'): RuleGroup['rules'][number] {
 }
 
 // Duplicates: two live tracks are a candidate pair if they share a
-// normalised artist + title, or the same byte size and (rounded) duration.
+// normalised artist + title, the same byte size and (rounded) duration, or
+// the same non-empty canonical_track_id (ISRC, MusicBrainz recording id or
+// fingerprint hash — local only, see identity/canonical.ts). The last one
+// catches the same recording under different text, and is only ever a
+// suggestion ("probably the same"): ISRCs get reused on remixes, so nothing
+// is merged or removed because of it.
 // Pairs the DJ has dismissed (dismissed_duplicate_pairs, either order) are
 // not surfaced: a track stays flagged while it still has at least one
 // partner in its group it has not been dismissed against.
@@ -86,13 +91,18 @@ function bareField(field: 'genre' | 'artist'): RuleGroup['rules'][number] {
 // TODO(health): size+duration rounds to whole seconds, so two copies that
 // straddle a rounding boundary are missed; revisit with a tolerance if real
 // libraries show it.
-const DUPLICATE_IDS_SQL = `
+// Every flagged (track, signal) pair. DUPLICATE_IDS_SQL and the per-track
+// reasons are both built on it, so a track's caption can never disagree
+// with why it is in the queue.
+const DUPLICATE_FLAGGED_CTE = `
   WITH keyed AS (
     SELECT id, artist, title,
       CASE WHEN TRIM(COALESCE(artist, '')) <> '' AND TRIM(COALESCE(title, '')) <> ''
         THEN LOWER(TRIM(artist)) || char(31) || LOWER(TRIM(title)) END AS name_key,
       CASE WHEN COALESCE(file_size_bytes, 0) > 0 AND duration_sec IS NOT NULL
-        THEN file_size_bytes || ':' || CAST(ROUND(duration_sec) AS INTEGER) END AS size_key
+        THEN file_size_bytes || ':' || CAST(ROUND(duration_sec) AS INTEGER) END AS size_key,
+      CASE WHEN TRIM(COALESCE(canonical_track_id, '')) <> ''
+        THEN TRIM(canonical_track_id) END AS canon_key
     FROM tracks
     WHERE missing = 0
   ),
@@ -103,6 +113,9 @@ const DUPLICATE_IDS_SQL = `
     UNION ALL
     SELECT id, 's', size_key, COUNT(*) OVER (PARTITION BY size_key)
     FROM keyed WHERE size_key IS NOT NULL
+    UNION ALL
+    SELECT id, 'c', canon_key, COUNT(*) OVER (PARTITION BY canon_key)
+    FROM keyed WHERE canon_key IS NOT NULL
   ),
   members AS (SELECT id, kind, gk, n FROM sized WHERE n > 1),
   dismissed AS (
@@ -119,11 +132,15 @@ const DUPLICATE_IDS_SQL = `
     GROUP BY m.id, m.kind, m.gk
   ),
   flagged AS (
-    SELECT m.id FROM members m
+    SELECT m.id, m.kind FROM members m
     LEFT JOIN (SELECT id, kind, gk, SUM(d) AS d FROM dismissed GROUP BY id, kind, gk) x
       ON x.id = m.id AND x.kind = m.kind AND x.gk = m.gk
     WHERE m.n - 1 > COALESCE(x.d, 0)
   )
+`
+
+const DUPLICATE_IDS_SQL = `
+  ${DUPLICATE_FLAGGED_CTE}
   SELECT k.id FROM keyed k
   WHERE k.id IN (SELECT id FROM flagged)
   ORDER BY LOWER(COALESCE(k.artist, '')), LOWER(COALESCE(k.title, '')), k.id
@@ -176,7 +193,7 @@ export const HEALTH_CHECKS: readonly HealthCheck[] = [
     id: 'duplicates',
     kind: 'query',
     label: 'Possible duplicates',
-    hint: 'Same artist and title, or the same size and length. Listed side by side.',
+    hint: 'Same artist and title, the same size and length, or probably the same recording (matching ISRC or audio). Only suggestions — check before removing anything.',
     idsSql: DUPLICATE_IDS_SQL
   },
   {
@@ -303,4 +320,26 @@ export function getHealthQueue(db: Database.Database, checkId: HealthCheckId): n
   if (!check) throw new Error(`Unknown health check "${String(checkId)}"`)
   const { sql, params } = idsQueryFor(check)
   return (db.prepare(sql).all(...params) as { id: number }[]).map((r) => r.id)
+}
+
+// ── Why each duplicate is flagged ────────────────────────────────────────
+
+export type DuplicateSignal = 'name' | 'size' | 'canonical'
+
+const SIGNAL_BY_KIND: Record<string, DuplicateSignal> = { n: 'name', s: 'size', c: 'canonical' }
+const SIGNAL_ORDER: readonly DuplicateSignal[] = ['name', 'size', 'canonical']
+
+// For each track in the duplicates queue, the signals that put it there, in
+// a fixed order. Runs the same flagged CTE as the queue itself, so the two
+// cannot disagree.
+export function getDuplicateSignals(db: Database.Database): Record<number, DuplicateSignal[]> {
+  const rows = db
+    .prepare(`${DUPLICATE_FLAGGED_CTE} SELECT DISTINCT id, kind FROM flagged`)
+    .all() as { id: number; kind: string }[]
+  const out: Record<number, DuplicateSignal[]> = {}
+  for (const r of rows) (out[r.id] ??= []).push(SIGNAL_BY_KIND[r.kind])
+  for (const signals of Object.values(out)) {
+    signals.sort((a, b) => SIGNAL_ORDER.indexOf(a) - SIGNAL_ORDER.indexOf(b))
+  }
+  return out
 }

@@ -30,15 +30,17 @@ function importStatusLabel(p: ImportProgressPayload): string {
     return 'Checking for files that have gone…'
   }
   const relinkedSuffix = p.relinked > 0 ? ` · ${p.relinked} relinked` : ''
+  // Held for the DJ to pick (Settings › Library › Review changes).
+  const reviewSuffix = (p.needsReview ?? 0) > 0 ? ` · ${p.needsReview} to review` : ''
   // "missing", never "removed" — the sweep only ever sets a flag.
   const sweptSuffix = p.swept > 0 ? ` · ${p.swept} now missing` : ''
   const unchangedSuffix = p.rescan && p.unchanged > 0 ? ` · ${p.unchanged} unchanged` : ''
   if (p.phase === 'cancelled') {
-    return `Cancelled — ${p.found} of ${p.total} imported${relinkedSuffix}`
+    return `Cancelled — ${p.found} of ${p.total} imported${relinkedSuffix}${reviewSuffix}`
   }
   if (p.phase === 'done') {
     const settled = p.rescan ? 'checked' : 'imported'
-    return `Done — ${p.found} of ${p.total} ${settled}${unchangedSuffix}${relinkedSuffix}${sweptSuffix}`
+    return `Done — ${p.found} of ${p.total} ${settled}${unchangedSuffix}${relinkedSuffix}${reviewSuffix}${sweptSuffix}`
   }
   return p.rescan ? 'Rescan error' : 'Import error'
 }

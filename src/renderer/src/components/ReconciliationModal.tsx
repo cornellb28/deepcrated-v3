@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { Dialog, DialogContent } from '@renderer/components/ui/dialog'
 import { Button } from '@renderer/components/ui/button'
 import { Badge } from '@renderer/components/ui/badge'
+import { toast } from 'sonner'
 import { useArtworkUrl } from '../hooks/useArtworkUrl'
 
 interface ReconciliationModalProps {
@@ -20,6 +21,19 @@ function groupChanges(changes: PendingChange[]): {
     added: changes.filter((c) => c.change_type === 'added'),
     deleted: changes.filter((c) => c.change_type === 'deleted'),
   }
+}
+
+// Held files (see holdForRelinkReview in main/db.ts): one row per candidate
+// track, grouped here by the file they are candidates for.
+function groupHeldFiles(changes: PendingChange[]): [string, PendingChange[]][] {
+  const byFile = new Map<string, PendingChange[]>()
+  for (const c of changes) {
+    if (c.change_type !== 'possible_relink' || !c.new_path) continue
+    const group = byFile.get(c.new_path) ?? []
+    group.push(c)
+    byFile.set(c.new_path, group)
+  }
+  return [...byFile.entries()]
 }
 
 function shortPath(path: string | null): string {
@@ -49,7 +63,48 @@ export function ReconciliationModal({
   }, [open])
 
   const grouped = groupChanges(changes)
+  const heldFiles = groupHeldFiles(changes)
   const pending = changes.filter(c => c.status === 'pending')
+  // Accept all / Ignore all never decide a held file: which track it is (if
+  // any) is a pick the DJ makes one file at a time.
+  const bulkPending = pending.filter((c) => c.change_type !== 'possible_relink')
+  const heldPending = new Set(
+    pending.filter((c) => c.change_type === 'possible_relink').map((c) => c.new_path)
+  ).size
+
+  // Mark a held file's rows resolved once a choice went through.
+  function settleHeld(newPath: string, chosenId: number | null): void {
+    setChanges((prev) =>
+      prev.map((c) =>
+        c.change_type === 'possible_relink' && c.new_path === newPath && c.status === 'pending'
+          ? { ...c, status: c.id === chosenId ? 'accepted' : 'ignored' }
+          : c
+      )
+    )
+  }
+
+  async function relinkHeld(change: PendingChange): Promise<void> {
+    setAccepting(change.id)
+    const result = await window.api.watcher.relinkHeld(change.id)
+    setAccepting(null)
+    if (result.ok) {
+      settleHeld(change.new_path as string, change.id)
+      return
+    }
+    toast.error('Could not relink', { description: result.error })
+    // The choice may be gone for good (file deleted, track found elsewhere).
+    setChanges(await window.api.watcher.pendingChanges())
+  }
+
+  async function importHeld(newPath: string): Promise<void> {
+    const result = await window.api.watcher.importHeld(newPath)
+    if (result.ok) {
+      settleHeld(newPath, null)
+      return
+    }
+    toast.error('Could not import', { description: result.error })
+    setChanges(await window.api.watcher.pendingChanges())
+  }
 
   async function accept(id: number): Promise<void> {
     setAccepting(id)
@@ -69,18 +124,22 @@ export function ReconciliationModal({
 
   async function acceptAll(): Promise<void> {
     setLoading(true)
-    for (const change of pending) {
+    for (const change of bulkPending) {
       await window.api.watcher.acceptChange(change.id)
     }
-    setChanges((prev) => prev.map(c => ({ ...c, status: 'accepted' })))
+    setChanges((prev) =>
+      prev.map((c) => (c.change_type === 'possible_relink' ? c : { ...c, status: 'accepted' }))
+    )
     setLoading(false)
   }
 
   async function ignoreAll(): Promise<void> {
-    for (const change of pending) {
+    for (const change of bulkPending) {
       await window.api.watcher.ignoreChange(change.id)
     }
-    setChanges((prev) => prev.map((c) => ({ ...c, status: 'ignored' })))
+    setChanges((prev) =>
+      prev.map((c) => (c.change_type === 'possible_relink' ? c : { ...c, status: 'ignored' }))
+    )
   }
 
   const allResolved = pending.length === 0 && changes.length > 0
@@ -129,6 +188,61 @@ export function ReconciliationModal({
 
         {!loading && changes.length > 0 && (
           <div style={{ padding: '12px 20px' }}>
+
+            {/* ── Held files: which missing track is this? ── */}
+            {heldFiles.length > 0 && (
+              <Section title="Which track is this?" icon="?" color="#c9a227" count={heldPending}>
+                <div
+                  style={{ fontSize: '11px', color: '#666', lineHeight: 1.5, marginBottom: '4px' }}
+                >
+                  These files probably match a missing track (same ISRC or recording ID), but more
+                  than one could fit, or the length differs. Nothing was imported or linked. Pick
+                  the right track, or import the file as a new one.
+                </div>
+                {heldFiles.map(([newPath, candidates]) => (
+                  <div
+                    key={newPath}
+                    style={{
+                      border: '0.5px solid #2a2a38',
+                      borderRadius: '8px',
+                      padding: '8px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '4px'
+                    }}
+                  >
+                    <div style={{ fontSize: '11px', color: '#c0c0d8', padding: '0 2px 4px' }}>
+                      {shortPath(newPath)}
+                    </div>
+                    {candidates.map((change) => (
+                      <ChangeRow
+                        key={change.id}
+                        change={change}
+                        onAccept={() => void relinkHeld(change)}
+                        accepting={accepting === change.id}
+                        acceptLabel="This one"
+                        description={
+                          <span style={{ color: '#555' }}>was at {shortPath(change.old_path)}</span>
+                        }
+                      />
+                    ))}
+                    {candidates.some((c) => c.status === 'pending') && (
+                      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-xs"
+                          style={{ color: '#888' }}
+                          onClick={() => void importHeld(newPath)}
+                        >
+                          None of these — import as new track
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </Section>
+            )}
 
             {/* ── Moved files ── */}
             {grouped.moved.length > 0 && (
@@ -196,7 +310,7 @@ export function ReconciliationModal({
         )}
 
         {/* ── Footer ── */}
-        {!loading && pending.length > 0 && (
+        {!loading && bulkPending.length > 0 && (
           <div style={{
             padding: '12px 20px',
             borderTop: '0.5px solid #1e1e2a',
@@ -221,7 +335,7 @@ export function ReconciliationModal({
               className="text-xs"
               style={{ borderColor: '#7f77dd', color: '#a09be8' }}
             >
-              Accept all {pending.length} changes
+              Accept all {bulkPending.length} changes
             </Button>
           </div>
         )}
@@ -312,12 +426,16 @@ function ChangeRow({
   onAccept,
   onIgnore,
   accepting,
+  acceptLabel
 }: {
   change: PendingChange
   description: React.ReactNode
   onAccept: (id: number) => void
-  onIgnore: (id: number) => void
+  // Omitted for a held file's candidates: there, not picking one is the
+  // "import as new" choice, not an ignore.
+  onIgnore?: (id: number) => void
   accepting: boolean
+  acceptLabel?: string
 }): React.JSX.Element {
   const resolved = change.status !== 'pending'
   const artworkUrl = useArtworkUrl(change.artwork_hash, 'thumb')
@@ -376,20 +494,22 @@ function ChangeRow({
       {/* Actions */}
       {!resolved ? (
         <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
-          <button
-            onClick={() => onIgnore(change.id)}
-            style={{
-              background: 'none',
-              border: '0.5px solid #333',
-              borderRadius: '4px',
-              color: '#555',
-              fontSize: '11px',
-              padding: '3px 8px',
-              cursor: 'pointer',
-            }}
-          >
-            Ignore
-          </button>
+          {onIgnore && (
+            <button
+              onClick={() => onIgnore(change.id)}
+              style={{
+                background: 'none',
+                border: '0.5px solid #333',
+                borderRadius: '4px',
+                color: '#555',
+                fontSize: '11px',
+                padding: '3px 8px',
+                cursor: 'pointer'
+              }}
+            >
+              Ignore
+            </button>
+          )}
           <button
             onClick={() => onAccept(change.id)}
             disabled={accepting}
@@ -404,12 +524,16 @@ function ChangeRow({
               opacity: accepting ? 0.6 : 1,
             }}
           >
-            {accepting ? '...' : 'Accept'}
+            {accepting ? '...' : (acceptLabel ?? 'Accept')}
           </button>
         </div>
       ) : (
         <span style={{ fontSize: '11px', color: '#444' }}>
-          {change.status}
+          {change.change_type === 'possible_relink'
+            ? change.status === 'accepted'
+              ? 'linked'
+              : 'not this one'
+            : change.status}
         </span>
       )}
     </div>

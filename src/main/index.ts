@@ -5,7 +5,7 @@ import icon from '../../resources/icon.png?asset'
 import { execSync } from 'child_process'
 import { randomUUID } from 'crypto'
 import { rename, stat, unlink, mkdir, readdir, readFile, open } from 'fs/promises'
-import { createReadStream, createWriteStream, type Stats } from 'fs'
+import { createReadStream, createWriteStream, existsSync, type Stats } from 'fs'
 import { startWatcher, stopWatcher, stopAllWatchers, setWatcherCallbacks } from './libraryWatcher'
 import { isUnchanged, normalizeMtime, withTrailingSep } from './rescan'
 import {
@@ -37,6 +37,7 @@ import {
   getAllTracks,
   getHealthSummary,
   getHealthQueue,
+  getDuplicateSignals,
   setTrackAnalysisError,
   getTrackById,
   getTracksByIds,
@@ -85,6 +86,10 @@ import {
   updateTrackFilepath,
   getMissingTracks,
   relinkTrack,
+  holdForRelinkReview,
+  isHeldForRelink,
+  relinkHeldFile,
+  releaseHeldFile,
   markTrackAnalyzed,
   insertPendingChange,
   getPendingChanges,
@@ -119,7 +124,7 @@ import {
   buildCrateFileBaseName,
   type CrateExportSettings
 } from './serato'
-import { computePartialHash, findReconcileMatch } from './reconcile'
+import { computePartialHash, reconcileCandidateFor, reconcileFile } from './reconcile'
 import { isHealthCheckId } from './health/checks'
 import type { AnalysisIssue } from './analysisIssue'
 import {
@@ -192,8 +197,12 @@ interface ImportProgressPayload {
   // without a second IPC round trip.
   folderPath: string
   // Of `found`, how many were relinked to an existing (missing) track row
-  // instead of inserted as new — see findReconcileMatch.
+  // instead of inserted as new — see reconcileFile.
   relinked: number
+  // Files held back for the DJ to pick which missing track they are (several
+  // share their canonical id) — neither inserted nor relinked. See
+  // holdForRelinkReview in db.ts.
+  needsReview: number
   // Files the walk found exactly where the DB already had them, with an
   // unchanged size and mtime — no tag read, just a last_seen_at stamp.
   unchanged: number
@@ -218,6 +227,7 @@ interface ImportJob {
   found: number
   skipped: number
   relinked: number
+  needsReview: number
   unchanged: number
   swept: number
   total: number
@@ -447,6 +457,7 @@ function buildProgressPayload(
     currentFolder,
     folderPath: job.folderPath,
     relinked: job.relinked,
+    needsReview: job.needsReview,
     unchanged: job.unchanged,
     swept: job.swept,
     rescan: job.rescan
@@ -516,6 +527,7 @@ async function scanFolderPaths(
         currentFolder: dir,
         folderPath: job.folderPath,
         relinked: job.relinked,
+        needsReview: job.needsReview,
         unchanged: job.unchanged,
         swept: job.swept,
         rescan: job.rescan
@@ -1166,6 +1178,7 @@ async function runFolderImport(
   cancelled?: boolean
   unchanged?: number
   relinked?: number
+  needsReview?: number
   swept?: number
 }> {
   // Pause watcher for this root during import to avoid EMFILE
@@ -1197,6 +1210,7 @@ async function runFolderImport(
           found: 0,
           skipped: 0,
           relinked: 0,
+          needsReview: 0,
           unchanged: 0,
           swept: 0,
           total: 0,
@@ -1410,22 +1424,22 @@ async function runFolderImport(
     // existing row left alone) instead of becoming a duplicate. Matched
     // candidates are spliced out of reconcilePool as they're consumed so
     // the same missing row can't match twice within one job.
+    // A file that probably is one of several missing tracks (by canonical id)
+    // is held back for the DJ to pick instead — neither inserted nor
+    // relinked. The pool only has rows when there is a matchingRoot.
     const toInsert: typeof parsedRows = []
     for (const row of parsedRows) {
-      const match = await findReconcileMatch(
-        {
-          filepath: row.data.filepath,
-          filename: row.data.filename,
-          client_uuid: row.data.client_uuid,
-          file_size_bytes: row.data.file_size_bytes,
-          duration_sec: row.data.duration_sec
-        },
-        reconcilePool
-      )
-      if (match === null) {
+      const outcome = await reconcileFile(reconcileCandidateFor(row.data), reconcilePool)
+      if (outcome.kind === 'ambiguous' && matchingRoot) {
+        holdForRelinkReview(matchingRoot.id, row.data.filepath, outcome.candidates)
+        job.needsReview++
+        continue
+      }
+      if (outcome.kind !== 'match') {
         toInsert.push(row)
         continue
       }
+      const match = outcome.track
       relinkTrack(match.id, row.data.filepath)
       reconcilePool.splice(reconcilePool.indexOf(match), 1)
       // The row now lives at the new path, which the walk did see, so it is
@@ -1566,6 +1580,7 @@ async function runFolderImport(
     jobId: id,
     unchanged: job.unchanged,
     relinked: job.relinked,
+    needsReview: job.needsReview,
     swept: job.swept
   }
 }
@@ -2102,6 +2117,7 @@ app.whenReady().then(() => {
       let imported = 0
       let unchanged = 0
       let relinked = 0
+      let needsReview = 0
       let swept = 0
       let total = 0
       const skippedRoots: string[] = []
@@ -2119,6 +2135,7 @@ app.whenReady().then(() => {
         total += result.total
         unchanged += result.unchanged ?? 0
         relinked += result.relinked ?? 0
+        needsReview += result.needsReview ?? 0
         swept += result.swept ?? 0
       }
 
@@ -2129,6 +2146,7 @@ app.whenReady().then(() => {
         imported,
         unchanged,
         relinked,
+        needsReview,
         swept,
         total
       }
@@ -2170,10 +2188,13 @@ app.whenReady().then(() => {
     }
   })
 
+  // skipReconcile: the DJ already chose "Import as new" for a held file, so
+  // matching it against the missing pool again would only hold it again.
   async function importSingleFile(
     event: Electron.IpcMainInvokeEvent,
-    filepath: string
-  ): Promise<{ ok: boolean; trackId?: number; error?: string }> {
+    filepath: string,
+    options: { skipReconcile?: boolean } = {}
+  ): Promise<{ ok: boolean; trackId?: number; needsReview?: boolean; error?: string }> {
     try {
       // Phase 1
       const fastResult = await readTagsFast(filepath)
@@ -2203,16 +2224,18 @@ app.whenReady().then(() => {
       // here — this is the manual dialog-import path (also what the
       // EmptyView/Board Finder-drop targets call per file) — so this
       // checks every missing track in the library, not just one root's.
-      const match = await findReconcileMatch(
-        {
-          filepath,
-          filename: trackData.filename,
-          client_uuid: trackData.client_uuid,
-          file_size_bytes: trackData.file_size_bytes,
-          duration_sec: trackData.duration_sec
-        },
-        getMissingTracks()
-      )
+      const outcome = options.skipReconcile
+        ? ({ kind: 'none' } as const)
+        : await reconcileFile(reconcileCandidateFor(trackData), getMissingTracks())
+      if (outcome.kind === 'ambiguous') {
+        // Probably one of several missing tracks: wait for the DJ to pick.
+        holdForRelinkReview(null, filepath, outcome.candidates)
+        console.log(
+          `[import] held for review (${outcome.candidates.length} possible tracks): ${filepath}`
+        )
+        return { ok: true, needsReview: true }
+      }
+      const match = outcome.kind === 'match' ? outcome.track : null
 
       let trackId: number
       if (match) {
@@ -2458,6 +2481,8 @@ app.whenReady().then(() => {
     if (!isHealthCheckId(checkId)) throw new Error('Unknown health check')
     return getHealthQueue(checkId)
   })
+  // Why each track in the duplicates queue is there (name / size / canonical).
+  ipcMain.handle('health:duplicate-signals', () => getDuplicateSignals())
 
   ipcMain.handle('db:track-by-id', (_e, id: number) => getTrackById(id))
 
@@ -3547,16 +3572,20 @@ app.whenReady().then(() => {
         // misses: filename changed, or the matching add arrived later than
         // that 2s window (a directory tree's per-file events can spread
         // out further than a single file's would).
-        const match = await findReconcileMatch(
-          {
-            filepath,
-            filename: trackData.filename,
-            client_uuid: trackData.client_uuid,
-            file_size_bytes: trackData.file_size_bytes,
-            duration_sec: trackData.duration_sec
-          },
+        const outcome = await reconcileFile(
+          reconcileCandidateFor(trackData),
           getMissingTracks(rootId)
         )
+        if (outcome.kind === 'ambiguous') {
+          // Probably one of several missing tracks: wait for the DJ to pick
+          // in the review dialog rather than import or relink it.
+          // TODO(relink): no live notice for this yet; it shows the next time
+          // the DJ opens Review changes (or in the next import summary).
+          holdForRelinkReview(rootId, filepath, outcome.candidates)
+          console.log(`[watcher] held for review: ${filepath}`)
+          return
+        }
+        const match = outcome.kind === 'match' ? outcome.track : null
 
         if (match) {
           relinkTrack(match.id, filepath)
@@ -3763,6 +3792,36 @@ app.whenReady().then(() => {
     } catch (err) {
       return { ok: false, error: (err as Error).message }
     }
+  })
+
+  // A held file (see holdForRelinkReview): the DJ picked which missing track
+  // it is. changeId is that candidate's pending_changes row.
+  ipcMain.handle('watcher:relink-held', (_e, changeId: unknown) => {
+    if (typeof changeId !== 'number') return { ok: false, error: 'Invalid choice' }
+    try {
+      const result = relinkHeldFile(changeId, existsSync)
+      if (result.ok) {
+        mainWindow?.webContents.send('watcher:track-moved', {
+          trackId: result.trackId,
+          oldPath: result.oldPath,
+          newPath: result.newPath
+        })
+      }
+      return result
+    } catch (err) {
+      return { ok: false, error: (err as Error).message }
+    }
+  })
+
+  // A held file: the DJ says it is none of the candidates. Imported exactly
+  // like a dropped file, minus the matching that held it in the first place.
+  ipcMain.handle('watcher:import-held', async (event, filepath: unknown) => {
+    if (typeof filepath !== 'string' || !isHeldForRelink(filepath)) {
+      return { ok: false, error: 'This file is no longer waiting for a choice.' }
+    }
+    const result = await importSingleFile(event, filepath, { skipReconcile: true })
+    if (result.ok) releaseHeldFile(filepath)
+    return result
   })
 
   // Start/stop watcher when DJ adds/removes a root

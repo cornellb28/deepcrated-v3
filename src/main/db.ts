@@ -17,6 +17,8 @@ import type { StatsStore } from './stats/types'
 import {
   getHealthSummary as computeHealthSummary,
   getHealthQueue as computeHealthQueue,
+  getDuplicateSignals as computeDuplicateSignals,
+  type DuplicateSignal,
   type HealthCheckId,
   type HealthSummary
 } from './health/checks'
@@ -2395,6 +2397,8 @@ export interface MissingTrackCandidate {
   file_size_bytes: number | null
   duration_sec: number | null
   partial_hash: string | null
+  // Read only by reconcile's canonical fallback; local, never synced.
+  canonical_track_id: string | null
 }
 
 // Scoped to one root when the caller has one (import, live add — both
@@ -2406,7 +2410,8 @@ export function getMissingTracks(rootId?: number): MissingTrackCandidate[] {
   if (rootId === undefined) {
     return db
       .prepare(
-        `SELECT id, filepath, filename, client_uuid, file_size_bytes, duration_sec, partial_hash
+        `SELECT id, filepath, filename, client_uuid, file_size_bytes, duration_sec, partial_hash,
+                canonical_track_id
          FROM tracks WHERE missing = 1`
       )
       .all() as MissingTrackCandidate[]
@@ -2423,7 +2428,7 @@ export function getMissingTracks(rootId?: number): MissingTrackCandidate[] {
   return db
     .prepare(
       `SELECT t.id, t.filepath, t.filename, t.client_uuid, t.file_size_bytes, t.duration_sec,
-              t.partial_hash
+              t.partial_hash, t.canonical_track_id
        FROM tracks t
        LEFT JOIN folders f ON f.id = t.folder_id
        WHERE t.missing = 1 AND (f.root_folder_id = ? OR t.folder_id IS NULL)`
@@ -2774,6 +2779,103 @@ export function ignorePendingChange(id: number): RunResult {
   return stmts.ignorePendingChange.run(id)
 }
 
+// ─── Possible relinks held for the DJ ─────────────────────
+// A newly found file whose canonical id (ISRC / recording id from its tags)
+// fits more than one missing track — or one whose length is too different
+// to trust — is not imported and not relinked. It waits, as one
+// pending_changes row per candidate track (change_type 'possible_relink',
+// old_path = the missing track's last path, new_path = the file), until the
+// DJ picks a track or chooses to import it as a new one. Nothing is merged
+// or deleted on its own. Uses the existing table: change_type is free text.
+export const POSSIBLE_RELINK = 'possible_relink'
+
+// False when the file is already waiting, so a rescan does not add a second
+// set of rows for it.
+export function holdForRelinkReview(
+  rootId: number | null,
+  newPath: string,
+  candidates: { id: number; filepath: string }[]
+): boolean {
+  return db.transaction(() => {
+    if (isHeldForRelink(newPath)) return false
+    for (const c of candidates) {
+      stmts.insertPendingChange.run({
+        root_id: rootId,
+        change_type: POSSIBLE_RELINK,
+        old_path: c.filepath,
+        new_path: newPath,
+        track_id: c.id
+      })
+    }
+    return true
+  })()
+}
+
+export function isHeldForRelink(newPath: string): boolean {
+  return (
+    db
+      .prepare(
+        `SELECT 1 FROM pending_changes
+         WHERE change_type = ? AND status = 'pending' AND new_path = ? LIMIT 1`
+      )
+      .get(POSSIBLE_RELINK, newPath) !== undefined
+  )
+}
+
+// Closes every waiting choice for the file, e.g. after "Import as new".
+export function releaseHeldFile(newPath: string): RunResult {
+  return db
+    .prepare(
+      `UPDATE pending_changes SET status = 'ignored'
+       WHERE change_type = ? AND status = 'pending' AND new_path = ?`
+    )
+    .run(POSSIBLE_RELINK, newPath)
+}
+
+export type HeldRelinkResult =
+  { ok: true; trackId: number; oldPath: string; newPath: string } | { ok: false; error: string }
+
+// The DJ picked this candidate: relink that track to the file, and close
+// the other choices for the same file. Every precondition is re-checked,
+// since the library may have moved on while the choice waited.
+export function relinkHeldFile(
+  changeId: number,
+  fileExists: (path: string) => boolean
+): HeldRelinkResult {
+  return db.transaction((): HeldRelinkResult => {
+    const change = db.prepare(`SELECT * FROM pending_changes WHERE id = ?`).get(changeId) as
+      | { change_type: string; status: string; new_path: string | null; track_id: number | null }
+      | undefined
+    if (!change || change.change_type !== POSSIBLE_RELINK || change.status !== 'pending') {
+      return { ok: false, error: 'This choice has already been made.' }
+    }
+    const newPath = change.new_path as string
+    if (!fileExists(newPath)) {
+      releaseHeldFile(newPath)
+      return { ok: false, error: 'The file is no longer there.' }
+    }
+    if (getTrackByFilepath(newPath)) {
+      releaseHeldFile(newPath)
+      return { ok: false, error: 'That file is already in your library.' }
+    }
+    const track = db
+      .prepare(`SELECT id, filepath, missing FROM tracks WHERE id = ?`)
+      .get(change.track_id) as { id: number; filepath: string; missing: number } | undefined
+    if (!track || track.missing !== 1) {
+      stmts.ignorePendingChange.run(changeId)
+      return {
+        ok: false,
+        error: 'That track is no longer missing. Pick another, or import as new.'
+      }
+    }
+
+    relinkTrack(track.id, newPath)
+    releaseHeldFile(newPath)
+    stmts.acceptPendingChange.run(changeId)
+    return { ok: true, trackId: track.id, oldPath: track.filepath, newPath }
+  })()
+}
+
 // ─── Anonymous stats store ────────────────────────────────
 // Only src/main/stats/ should call this; the renderer reaches it through the
 // privacy:* IPC handlers, never directly.
@@ -2831,4 +2933,8 @@ export function getHealthSummary(): HealthSummary {
 
 export function getHealthQueue(checkId: HealthCheckId): number[] {
   return computeHealthQueue(db, checkId)
+}
+
+export function getDuplicateSignals(): Record<number, DuplicateSignal[]> {
+  return computeDuplicateSignals(db)
 }

@@ -5,7 +5,9 @@ declare global {
     api: {
       openFolder: () => Promise<string | null>
       openFiles: () => Promise<string[]>
-      importFile: (filepath: string) => Promise<{ ok: boolean; trackId?: number; error?: string }>
+      importFile: (
+        filepath: string
+      ) => Promise<{ ok: boolean; trackId?: number; needsReview?: boolean; error?: string }>
       importFiles: (filepaths: string[]) => Promise<{
         ok: boolean
         count: number
@@ -50,12 +52,15 @@ declare global {
         error?: string
         unchanged?: number
         relinked?: number
+        // Files held for the DJ to pick which missing track they are.
+        needsReview?: number
         swept?: number
       }>
 
       health: {
         summary: () => Promise<HealthSummary>
         queue: (checkId: HealthCheckId) => Promise<number[]>
+        duplicateSignals: () => Promise<Record<number, DuplicateSignal[]>>
       }
       auth: {
         state: () => Promise<AuthState>
@@ -95,6 +100,8 @@ declare global {
         imported?: number
         unchanged?: number
         relinked?: number
+        // Files held for the DJ to pick which missing track they are.
+        needsReview?: number
         // Tracks marked missing. Never a deletion.
         swept?: number
         total?: number
@@ -194,6 +201,10 @@ declare global {
         pendingChanges: () => Promise<PendingChange[]>
         acceptChange: (id: number) => Promise<{ ok: boolean; error?: string }>
         ignoreChange: (id: number) => Promise<{ ok: boolean; error?: string }>
+        relinkHeld: (changeId: number) => Promise<{ ok: boolean; trackId?: number; error?: string }>
+        importHeld: (
+          filepath: string
+        ) => Promise<{ ok: boolean; trackId?: number; needsReview?: boolean; error?: string }>
         start: (rootId: number, rootPath: string) => Promise<{ ok: boolean }>
         stop: (rootId: number) => Promise<{ ok: boolean }>
       }
@@ -480,6 +491,10 @@ declare global {
     | 'unreadable_audio'
     | 'missing_file'
 
+  // Why a track is in the duplicates queue. 'canonical' = probably the same
+  // recording (shared ISRC, MusicBrainz recording id or audio fingerprint).
+  type DuplicateSignal = 'name' | 'size' | 'canonical'
+
   interface HealthSummary {
     liveTracks: number
     flaggedTracks: number
@@ -749,6 +764,7 @@ declare global {
     estimateSeconds?: number
     folderPath: string
     relinked: number
+    needsReview: number
     unchanged: number
     swept: number
     rescan: boolean
@@ -886,7 +902,9 @@ declare global {
   interface PendingChange {
     id: number
     root_id: number
-    change_type: 'added' | 'moved' | 'renamed' | 'deleted'
+    // possible_relink: a held file that could be one of several missing
+    // tracks; one row per candidate (track_id), grouped by new_path.
+    change_type: 'added' | 'moved' | 'renamed' | 'deleted' | 'possible_relink'
     old_path: string | null
     new_path: string | null
     track_id: number | null
