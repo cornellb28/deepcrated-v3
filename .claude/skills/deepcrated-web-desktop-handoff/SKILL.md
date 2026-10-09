@@ -1,6 +1,6 @@
 ---
 name: deepcrated-web-desktop-handoff
-description: The website side of signing a user into the DeepCrate desktop app, in deepcrate-web. Covers the desktop connect page, the create-key and redeem endpoints, the handoff table, and creating a session server-side. Use whenever work touches desktop sign-in, the connect page, one-time keys, redeem, verifier or challenge checks, generateLink or verifyOtp, or why the app does not sign in after the browser login, even if the user just says "the handoff" or "sign in from the app". Read deepcrate-account-contract first.
+description: The website side of signing a user into the DeepCrated desktop app, in deepcrate-web. Covers the desktop connect page, the create-key and redeem endpoints, the handoff table, and creating a session server-side. Use whenever work touches desktop sign-in, the connect page, one-time keys, redeem, verifier or challenge checks, generateLink or verifyOtp, or why the app does not sign in after the browser login, even if the user just says "the handoff" or "sign in from the app". Read deepcrate-account-contract first.
 ---
 
 # Desktop sign-in handoff (deepcrate-web)
@@ -8,7 +8,7 @@ description: The website side of signing a user into the DeepCrate desktop app, 
 Read `deepcrate-account-contract` (v3) first; its "Round trip" section is the design. Inspect the existing framework, routes, and migrations before changing anything. These two endpoints plus the Stripe webhook are the only server routes; don't add more.
 
 ## Pieces
-- **Connect page** `/desktop/connect?challenge=...&state=...` (optional `mode=signup`): if not signed in, send through login or signup and return with the query intact. If signed in, show "Open DeepCrate as <email>?" with a confirm button and a "Use a different account" link. On confirm, call the create endpoint, then navigate to `<scheme>://auth-callback?key=...&state=...`. Include a "Didn't open? Try again" button.
+- **Connect page** `/desktop/connect?challenge=...&state=...` (optional `mode=signup`): if not signed in, send through login or signup and return with the query intact. If signed in, show "Open DeepCrated as <email>?" with a confirm button and a "Use a different account" link. On confirm, call the create endpoint, then navigate to `<scheme>://auth-callback?key=...&state=...`. Include a "Didn't open? Try again" button.
 - **Create endpoint** (authenticated by the web session): require a **confirmed email** (verifying a magic link confirms an email, so never issue for an unconfirmed user). Generate a key (32 random bytes, base64url). Store only SHA-256(key) with the challenge, user id, expiry 60 seconds, and a null `used_at`. Return the key.
 - **Redeem endpoint** (called by the desktop app, not a browser): body `{ key, verifier }`. In one atomic statement mark the row used where `key_hash` matches, `used_at` is null, and it has not expired (UPDATE ... RETURNING). Check base64url(SHA-256(verifier)) equals the stored challenge. Then create a session for that user server-side: admin `generateLink` (type magiclink; sends no email) and `verifyOtp` with the returned `hashed_token` and type `email`, using a non-persisting anon client. Return `{ access_token, refresh_token }`.
 

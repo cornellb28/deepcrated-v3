@@ -12,6 +12,7 @@ import { ArtistCleanSettings } from '../components/ArtistCleanSettings'
 import { useLibraryStore } from '../store/useLibraryStore'
 import { FilenameTemplateEditor } from '../components/FilenameTemplateEditor'
 import { describePlan } from '../lib/plan'
+import { PlanTiers } from '../components/PlanTiers'
 
 // Settings as a full page rather than a modal. A modal was wrong for this:
 // it capped the content at 440px with everything stacked in one scroll, and
@@ -147,46 +148,6 @@ function Card({
       }}
     >
       {children}
-    </div>
-  )
-}
-
-// Advertising, not gating. Nothing in the desktop app is locked — this
-// describes the paid cloud surface, which is sold on the web and does not
-// exist yet. There is deliberately no LockedView/LockBadge anywhere.
-function UpgradeSection({
-  entitlement
-}: {
-  entitlement: Entitlement | null
-}): React.JSX.Element | null {
-  if (!entitlement) return null
-  // Any paid tier hides the pitch — deliberately not a list of paid plan
-  // names, which would need editing every time the lineup changes.
-  if (entitlement && entitlement.plan !== 'free') return null
-
-  return (
-    <div
-      style={{
-        marginTop: '16px',
-        padding: '14px',
-        background: '#16161f',
-        border: '0.5px solid #252535',
-        borderRadius: '6px'
-      }}
-    >
-      <div style={{ fontSize: '12px', color: '#c0c0d8', marginBottom: '4px' }}>Cloud Sync</div>
-      <div style={{ fontSize: '11px', color: '#555', lineHeight: 1.6, marginBottom: '10px' }}>
-        Keep your tags, crates and play history in sync across every machine — and browse them on
-        your phone when mobile lands. Your audio files stay where they are.
-      </div>
-      <Button
-        onClick={() => UPGRADE_URL && void window.api.openExternal(UPGRADE_URL)}
-        disabled={!UPGRADE_URL}
-        variant="outline"
-        size="sm"
-      >
-        {UPGRADE_URL ? 'See plans' : 'Coming soon'}
-      </Button>
     </div>
   )
 }
@@ -432,7 +393,7 @@ export function SettingsView({
           <TabsContent value="plan">
             <Section
               title="Plan"
-              description="Your plan is read from your own account entitlement. No desktop features are gated by plan or sign-in status."
+              description="Your plan is read from your own account. No desktop feature is gated by plan or sign-in — only cloud sync and mobile."
             >
               <Card>
                 <div>
@@ -459,7 +420,13 @@ export function SettingsView({
                 </div>
               )}
               {/* TODO: Persist an entitlement cache only after its storage and offline trust policy are approved. */}
-              <UpgradeSection entitlement={auth?.entitlement ?? null} />
+              <PlanTiers
+                entitlement={auth?.entitlement ?? null}
+                signedIn={auth?.status === 'signedIn'}
+                onSeePlans={
+                  UPGRADE_URL ? () => void window.api.openExternal(UPGRADE_URL) : undefined
+                }
+              />
             </Section>
           </TabsContent>
 

@@ -33,7 +33,7 @@ export type AuthStatus = 'signedOut' | 'awaitingBrowser' | 'signedIn' | 'expired
 export type AuthDestination = 'signIn' | 'createAccount' | 'passwordReset' | 'account' | 'portal'
 
 export interface Entitlement {
-  plan: 'free' | 'cloud_mobile' | 'cloud_mobile_plus'
+  plan: 'free' | 'sync' | 'library' | 'touring'
   status:
     | 'active'
     | 'trialing'

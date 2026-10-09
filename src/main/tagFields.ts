@@ -8,36 +8,44 @@
 //
 // The database half lives in db.ts beside the other tag functions.
 
-// What the derived column is joined with. Settled 2026-09-25: this is what
-// TagInput and BulkEditModal already write, and what the existing column
-// values already round-trip through.
-export const DISPLAY_DELIMITER = ' / '
+// What the derived column is joined with. " | " (space-pipe-space) is the one
+// delimiter shared with mobile and the sync contract (docs/sync-contract.md);
+// it replaced " / " (settled 2026-09-25) in the sync-identity migration.
+export const DISPLAY_DELIMITER = ' | '
 
-// Which delimiters a raw value may be SPLIT on, per field.
+// The pre-migration delimiter. Still ACCEPTED when splitting, so a file or row
+// written by an older build keeps splitting correctly, but never written.
+export const LEGACY_DELIMITER = ' / '
+
+// Which delimiters a raw value may be SPLIT on, per field. Every multi-value
+// field takes " | " (written) and " / " (legacy, read-only).
 //
-// grouping takes ' | ' as well because the files themselves use it — verified
-// on disk, an MP3 whose TIT1 frame reads "90s | CLASSIC". That is the DJ's own
-// convention inside the file; ' / ' is DeepCrated's. Both mean the same thing
-// and both have to survive a round trip.
+// album is the exception and takes the legacy " / " alone: album names carry a
+// literal " | " in real libraries ("DMS | Spinser Tracy" — 44 rows in the
+// reference library), and an album is single-valued, so splitting it on " | "
+// would shatter real names. joinValues keeps album on " / " for the same reason.
 //
-// Everything else takes ' / ' alone. Nothing here ever splits on a comma, an
-// ampersand, a bare slash, ' x ' or 'feat.' — "Tyler, The Creator", "Drum &
-// Bass" and "Pete Rock & C.L. Smooth" are single names, and guessing wrong
-// shatters them into fragments that then have to be reassembled by hand.
+// Nothing here ever splits on a comma, an ampersand, a bare slash, ' x ' or
+// 'feat.' — "Tyler, The Creator", "Drum & Bass" and "Pete Rock & C.L. Smooth"
+// are single names, and guessing wrong shatters them into fragments that then
+// have to be reassembled by hand.
+const MULTI_VALUE_DELIMITERS = [DISPLAY_DELIMITER, LEGACY_DELIMITER] as const
+
 export const FIELD_DELIMITERS: Record<string, readonly string[]> = {
-  artist: [DISPLAY_DELIMITER],
-  genre: [DISPLAY_DELIMITER],
-  grouping: [DISPLAY_DELIMITER, ' | '],
-  label: [DISPLAY_DELIMITER],
-  remixer: [DISPLAY_DELIMITER],
-  composer: [DISPLAY_DELIMITER],
-  // Not part of the five being migrated, but they are TagInput fields in the
-  // Inspector and so reach setTagsForField. Leaving them out would make the
-  // allow-list throw on the two namespaces that already work — comment is the
-  // established badge field (GOTOS, HEADZ).
-  comment: [DISPLAY_DELIMITER],
-  album: [DISPLAY_DELIMITER]
+  artist: MULTI_VALUE_DELIMITERS,
+  genre: MULTI_VALUE_DELIMITERS,
+  grouping: MULTI_VALUE_DELIMITERS,
+  label: MULTI_VALUE_DELIMITERS,
+  remixer: MULTI_VALUE_DELIMITERS,
+  composer: MULTI_VALUE_DELIMITERS,
+  // comment is the established badge field (GOTOS, HEADZ) and reaches
+  // setTagsForField from the Inspector, so it has to be on the allow-list.
+  comment: MULTI_VALUE_DELIMITERS,
+  album: [LEGACY_DELIMITER]
 }
+
+// Fields whose derived column is NOT joined with DISPLAY_DELIMITER.
+const JOIN_OVERRIDES: Record<string, string> = { album: LEGACY_DELIMITER }
 
 // The fields this module governs. Also the allow-list that stops a caller
 // putting an arbitrary string into a SQL column name — see db.ts.
@@ -58,10 +66,10 @@ export function splitValue(field: string, raw: string | null | undefined): strin
   if (!delimiters) return [value.trim()]
 
   // Split the RAW value, then trim the parts — not the other way round. The
-  // delimiter is " / ", spaces included, so trimming first turns a trailing
-  // "Hip Hop / " into "Hip Hop /" and the delimiter stops matching. The
+  // delimiter is " | ", spaces included, so trimming first turns a trailing
+  // "Hip Hop | " into "Hip Hop |" and the delimiter stops matching. The
   // spaces are load-bearing: they are what distinguishes the approved
-  // delimiter from the bare slash in "Afrobeat/R&B/Pop", which must NOT split.
+  // delimiters from the bare slash in "Afrobeat/R&B/Pop", which must NOT split.
   //
   // Split on every approved delimiter for the field, not just the first that
   // matches: "CLASSIC / CURRENT | 90s" is mixed, and both halves are real.
@@ -76,9 +84,10 @@ export function splitValue(field: string, raw: string | null | undefined): strin
 // The derived display string, from tag values in the order they should read.
 // Returns null rather than '' for an empty set so the column matches what the
 // rest of the codebase treats as "no value".
-export function joinValues(values: readonly string[]): string | null {
+export function joinValues(values: readonly string[], field?: string): string | null {
   const cleaned = values.map((v) => v.trim()).filter((v) => v !== '')
-  return cleaned.length > 0 ? cleaned.join(DISPLAY_DELIMITER) : null
+  const delimiter = (field && JOIN_OVERRIDES[field]) || DISPLAY_DELIMITER
+  return cleaned.length > 0 ? cleaned.join(delimiter) : null
 }
 
 // ── Delimiters we refuse to split on ──────────────────────────────────────
@@ -90,7 +99,7 @@ const RISKY_DELIMITERS: readonly { name: string; re: RegExp }[] = [
   { name: 'comma', re: /,/ },
   { name: 'ampersand', re: /&/ },
   // A slash with no spaces around it: "Afrobeat/R&B/Pop". Distinct from the
-  // approved " / ", which is why the spaces are load-bearing.
+  // approved " | ", which is why the spaces are load-bearing.
   { name: 'slash-no-spaces', re: /\S\/\S/ },
   { name: 'x-separator', re: /\s+x\s+/i },
   { name: 'feat', re: /\b(feat\.?|ft\.?)\b/i },
@@ -106,7 +115,7 @@ export function riskyDelimitersIn(value: string): string[] {
 // i.e. the value can be backfilled without asking.
 //
 // Deliberately conservative, and it costs some false alarms. "Dance / R&B /
-// SOUL" splits cleanly on " / ", but the part "R&B" still carries an "&", and
+// SOUL" splits cleanly on " | ", but the part "R&B" still carries an "&", and
 // from here "R&B" and "Pete Rock & C.L. Smooth" are the same shape: one part,
 // one ampersand, one or two things. Only the DJ knows which, so both go to
 // review. Erring the other way would quietly shatter a duo's name.

@@ -1,7 +1,7 @@
 // ── Artist names ──────────────────────────────────────────────────────────
 // tracks.artist is one string. The app's own convention for several artists
-// is " / " (main/tagFields.ts DISPLAY_DELIMITER), and that is the ONLY thing
-// split here — the same rule main applies, for the same reason: "Tyler, The
+// is " | " (main/tagFields.ts DISPLAY_DELIMITER; the legacy " / " is still
+// read), and those are the ONLY things split here — the same rule main applies, for the same reason: "Tyler, The
 // Creator" and "Pete Rock & C.L. Smooth" are single names, and guessing at
 // commas, ampersands, "x", "vs" or "feat." shatters them into fragments.
 //
@@ -9,7 +9,7 @@
 // them safely needs a reviewed list of names that contain those separators,
 // the way main's riskyDelimitersIn routes them to a review step.
 
-export const ARTIST_DELIMITER = ' / '
+export const ARTIST_DELIMITERS = [' | ', ' / '] as const
 
 // Case-, whitespace- and Unicode-normalisation-insensitive, nothing more:
 // accents are NOT stripped ("Beyoncé" and "Beyonce" stay different artists)
@@ -27,8 +27,7 @@ export function normalizeArtistKey(name: string): string {
 export function splitArtists(raw: string | null | undefined): string[] {
   const value = raw ?? ''
   if (value.trim() === '') return []
-  return value
-    .split(ARTIST_DELIMITER)
+  return ARTIST_DELIMITERS.reduce<string[]>((parts, d) => parts.flatMap((p) => p.split(d)), [value])
     .map((part) => part.trim())
     .filter((part) => part !== '')
 }

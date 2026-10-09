@@ -695,9 +695,10 @@ declare global {
     // UI gates on this; the desktop app is free. The paid values are the
     // cloud/mobile subscription sold on the web.
     //
-    // PROVISIONAL names (2026-09-23): the tier lineup is not finalised.
-    // Branch on "not 'free'", never on a specific paid value.
-    plan: 'free' | 'cloud_mobile' | 'cloud_mobile_plus'
+    // Final plan ids (2026-10-08): free | sync | library | touring. Local
+    // features never branch on these; only cloud surfaces do, through
+    // lib/plan.ts.
+    plan: 'free' | 'sync' | 'library' | 'touring'
     status:
       | 'active'
       | 'trialing'

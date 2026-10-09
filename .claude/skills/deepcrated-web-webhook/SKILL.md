@@ -1,6 +1,6 @@
 ---
 name: deepcrated-web-webhook
-description: The Stripe webhook (Vercel serverless) that writes entitlements for DeepCrate, in deepcrate-web. Use whenever work touches the webhook handler, Stripe signature verification, event handling, idempotency, the service role key, or writing subscription state to Supabase, even if the user just says "payments aren't updating" or "the webhook". Read deepcrate-account-contract first.
+description: The Stripe webhook (Vercel serverless) that writes entitlements for DeepCrated, in deepcrate-web. Use whenever work touches the webhook handler, Stripe signature verification, event handling, idempotency, the service role key, or writing subscription state to Supabase, even if the user just says "payments aren't updating" or "the webhook". Read deepcrate-account-contract first.
 ---
 
 # Stripe webhook (deepcrate-web)

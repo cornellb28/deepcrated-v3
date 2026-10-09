@@ -154,14 +154,14 @@ test('ampersands, feat., x and a bare slash do not split', () => {
   }
 })
 
-test('the library delimiter " / " is the one split, and each artist is cleaned on its own', () => {
-  const parts = cleanArtistString('Notorious BIG / Jay-Z', createArtistIndex(ctx())).parts
+test('the library delimiter " | " is the one split, and each artist is cleaned on its own', () => {
+  const parts = cleanArtistString('Notorious BIG | Jay-Z', createArtistIndex(ctx())).parts
   expect(parts.map((p) => p.canonical)).toEqual(['NOTORIOUS B.I.G', 'JAY Z'])
   expect(parts.every((p) => p.confidence === 'high')).toBe(true)
 })
 
-test('" | " is NOT an artist delimiter (it belongs to grouping)', () => {
-  expect(cleanArtistString('A | B', createArtistIndex(ctx())).parts).toHaveLength(1)
+test('the legacy " / " still splits when read', () => {
+  expect(cleanArtistString('A / B', createArtistIndex(ctx())).parts).toHaveLength(2)
 })
 
 // ── keep rules ────────────────────────────────────────────────────────────

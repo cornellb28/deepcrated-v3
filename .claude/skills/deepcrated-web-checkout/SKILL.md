@@ -1,6 +1,6 @@
 ---
 name: deepcrated-web-checkout
-description: Stripe Checkout Sessions, customer portal, and success/cancel redirects on the DeepCrate website (deepcrate-web, Vercel). Use whenever work touches checkout, pricing pages, Stripe customers, subscriptions purchase flow, the customer portal, or redirecting to the desktop app after payment, even if the user just says "buy button" or "billing page". Read deepcrate-account-contract first.
+description: Stripe Checkout Sessions, customer portal, and success/cancel redirects on the DeepCrated website (deepcrate-web, Vercel). Use whenever work touches checkout, pricing pages, Stripe customers, subscriptions purchase flow, the customer portal, or redirecting to the desktop app after payment, even if the user just says "buy button" or "billing page". Read deepcrate-account-contract first.
 ---
 
 # Web checkout (deepcrate-web)

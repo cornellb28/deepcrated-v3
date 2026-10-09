@@ -7,7 +7,7 @@ import { Badge } from '@renderer/components/ui/badge'
 import { TagInput } from './TagInput'
 import { useLibraryStore } from '../store/useLibraryStore'
 import { useArtworkUrl } from '../hooks/useArtworkUrl'
-import { fieldToMetaKey, withTrackIdentity } from '../lib/tagMeta'
+import { fieldToMetaKey, joinTagValues, withTrackIdentity } from '../lib/tagMeta'
 import { StagePill } from './StagePill'
 import { reanalyzeTrack } from '../lib/reanalyze'
 import { flushStageWrites } from '../lib/stageCommit'
@@ -246,7 +246,10 @@ export function BulkEditModal({
 
           // Same separator TagInput uses, so a field written here and one
           // written there read back identically.
-          const joined = tagsForField.map((t) => t.value).join(' / ')
+          const joined = joinTagValues(
+            tagsForField.map((t) => t.value),
+            field
+          )
 
           for (const trackId of trackIds) {
             if (trackId === currentTrack.id) continue

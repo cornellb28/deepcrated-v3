@@ -3,6 +3,7 @@ dist
 out
 .DS_Store
 .eslintcache
+.next
 *.log*
 sidecar/.venv/
 tests/.probe
@@ -14,3 +15,8 @@ playwright-report
 .env
 .env.*
 !.env.example
+
+# Delimiter write-back: backups and dry-run reports
+backups/
+delimiter-dry-run.json
+delimiter-dry-run.csv

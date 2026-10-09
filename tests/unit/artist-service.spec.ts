@@ -101,12 +101,12 @@ test('a name that already matches exactly is tagged and not rewritten', async ()
   expect(h.store.row(10).tags).toEqual(['JAY Z'])
 })
 
-test('multi-artist strings are cleaned per artist, after the " / " split', async () => {
+test('multi-artist strings are cleaned per artist, after the " | " split', async () => {
   const h = harness()
-  h.store.addTrack(10, 'Notorious BIG / Jay-Z')
+  h.store.addTrack(10, 'Notorious BIG | Jay-Z')
   await h.cleaner.processNewTracks([10])
   expect(h.store.row(10).tags).toEqual(['NOTORIOUS B.I.G', 'JAY Z'])
-  expect(h.writes[0].artist).toBe('NOTORIOUS B.I.G / JAY Z')
+  expect(h.writes[0].artist).toBe('NOTORIOUS B.I.G | JAY Z')
 })
 
 test('a comma list is one name: tagged as is, never split', async () => {

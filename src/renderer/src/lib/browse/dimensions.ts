@@ -139,8 +139,8 @@ export const tagsDimension: BrowseDimension = {
 // From the tracks.artist column, NOT artist tags: the column is the only
 // complete source today (in the real library 64 of 77 tracks with an artist
 // string have no artist tag yet). Names are grouped case-, whitespace- and
-// Unicode-normalisation-insensitively and split on " / " only — see
-// artist.ts. A track with "A / B" counts under both, so counts do not sum to
+// Unicode-normalisation-insensitively and split on " | " (and legacy " / ") only — see
+// artist.ts. A track with "A | B" counts under both, so counts do not sum to
 // the track total.
 
 const NO_ARTIST = 'bucket:no-artist'

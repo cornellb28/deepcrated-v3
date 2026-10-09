@@ -1,6 +1,6 @@
 ---
 name: deepcrated-desktop-deeplink
-description: Custom protocol handler and the sign-in handoff from the website into the DeepCrate desktop app (deepcrated-v3, Electron). Use whenever work touches the protocol scheme, open-url, second-instance, single-instance lock, auth callback links, the one-time key and verifier exchange, redeeming a sign-in, or the checkout/login redirect back into the app, even if the user just says "redirect back to the app". Read deepcrate-account-contract first.
+description: Custom protocol handler and the sign-in handoff from the website into the DeepCrated desktop app (deepcrated-v3, Electron). Use whenever work touches the protocol scheme, open-url, second-instance, single-instance lock, auth callback links, the one-time key and verifier exchange, redeeming a sign-in, or the checkout/login redirect back into the app, even if the user just says "redirect back to the app". Read deepcrate-account-contract first.
 ---
 
 # Desktop deep link and sign-in handoff (deepcrated-v3)

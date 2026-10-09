@@ -58,8 +58,8 @@ test('setting tags writes the derived column in the same call', () => {
     const tags = at<{ field: string; value: string }[]>(results, 1)
 
     // The derived string keeps the order the DJ set (ORDER BY tt.rowid) ...
-    expect(derived).toBe('Foxy Brown / Dru Hill')
-    expect(track.artist).toBe('Foxy Brown / Dru Hill')
+    expect(derived).toBe('Foxy Brown | Dru Hill')
+    expect(track.artist).toBe('Foxy Brown | Dru Hill')
     // ... while getTrackTags lists badges alphabetically (ORDER BY tg.field,
     // tg.value). Deliberately different: the display string is the DJ's
     // ordering, the badge list is a stable one. Assert the set here, and the
@@ -73,7 +73,7 @@ test('order is preserved — it is what the display string reads', () => {
     ...seed(),
     { fn: 'setTagsForField', args: [1, 'artist', ['Dru Hill', 'Foxy Brown']] }
   ]).then((results) => {
-    expect(at<string>(results, 1)).toBe('Dru Hill / Foxy Brown')
+    expect(at<string>(results, 1)).toBe('Dru Hill | Foxy Brown')
   })
 })
 
@@ -162,7 +162,7 @@ test('renaming a tag re-derives every track carrying it', () => {
 
     // Both derived columns followed the rename — the thing that did not
     // happen before, because nothing renamed tags at all.
-    expect(at<{ artist: string }>(after, 2).artist).toBe('Inga Marchand / Dru Hill')
+    expect(at<{ artist: string }>(after, 2).artist).toBe('Inga Marchand | Dru Hill')
     expect(at<{ artist: string }>(after, 1).artist).toBe('Inga Marchand')
   })
 })

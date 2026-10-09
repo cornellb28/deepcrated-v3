@@ -22,7 +22,7 @@
 //
 // This NEVER splits on commas, ampersands, "feat.", "x" or a bare slash:
 // "Tyler, The Creator" and "Pete Rock & C.L. Smooth" are one artist each. The
-// only split is the library's own " / " delimiter, done before this runs.
+// only split is the library's own " | " delimiter, done before this runs.
 
 import { joinValues, splitValue } from '../tagFields'
 
@@ -284,7 +284,7 @@ export function cleanArtist(incoming: string, ctx: CleanContext): CleanResult {
 
 export interface CleanedArtistString {
   raw: string
-  // One result per artist, in order, after the library's " / " split.
+  // One result per artist, in order, after the library's " | " split.
   parts: CleanResult[]
 }
 

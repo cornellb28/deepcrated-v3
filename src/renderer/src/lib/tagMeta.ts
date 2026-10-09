@@ -16,6 +16,12 @@ export function withTrackIdentity(track: Track, meta: EditTagsMeta): EditTagsMet
   return { ...meta, cratecloud_id: track.client_uuid }
 }
 
+// Mirrors main/tagFields.ts joinValues: " | " between values, except album,
+// which stays on " / " because real album names contain " | ".
+export function joinTagValues(values: readonly string[], field: string): string {
+  return values.join(field === 'album' ? ' / ' : ' | ')
+}
+
 // A tag badge field's name is its edit_tags.py meta key in every case
 // except key_camelot, which travels as `key`.
 export function fieldToMetaKey(field: string): keyof EditTagsMeta {

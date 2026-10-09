@@ -68,7 +68,7 @@ if (!delimiters) {
 }
 
 // ── Rules, mirroring src/main/tagFields.ts ───────────────────────────────
-const DISPLAY = ' / '
+const DISPLAY = ' | '
 
 function splitValue(raw) {
   const v = raw ?? ''

@@ -16,15 +16,14 @@ import {
 // invents an artist who does not exist, and failing to split
 // "90s | HOUSE | HEADS | DANCE" loses three badges the DJ actually applied.
 
-test('the display delimiter is what the app already writes', () => {
-  // TagInput and BulkEditModal both join with this; changing it would strand
-  // every existing derived column value.
-  expect(DISPLAY_DELIMITER).toBe(' / ')
+test('the display delimiter is the one shared with mobile and sync', () => {
+  expect(DISPLAY_DELIMITER).toBe(' | ')
 })
 
-test('splits on the approved delimiter', () => {
+test('splits on the approved delimiter, and still reads the legacy one', () => {
+  expect(splitValue('genre', 'Hip Hop | R&B | Soul')).toEqual(['Hip Hop', 'R&B', 'Soul'])
+  expect(splitValue('artist', 'ATCQ | RASTA')).toEqual(['ATCQ', 'RASTA'])
   expect(splitValue('genre', 'Hip Hop / R&B / Soul')).toEqual(['Hip Hop', 'R&B', 'Soul'])
-  expect(splitValue('artist', 'ATCQ / RASTA')).toEqual(['ATCQ', 'RASTA'])
 })
 
 test('grouping also splits on " | ", because the files themselves use it', () => {
@@ -40,11 +39,10 @@ test('grouping also splits on " | ", because the files themselves use it', () =>
   expect(splitValue('grouping', 'CLASSIC / CURRENT | 90s')).toEqual(['CLASSIC', 'CURRENT', '90s'])
 })
 
-test('no OTHER field splits on " | "', () => {
-  // Only grouping's source data uses it. A genre containing a pipe is one
-  // genre until someone says otherwise.
-  expect(splitValue('genre', 'Hip Hop | Soul')).toEqual(['Hip Hop | Soul'])
-  expect(FIELD_DELIMITERS.genre).toEqual([' / '])
+test('album alone does not split on " | " (real album names contain it)', () => {
+  expect(splitValue('album', 'DMS | Spinser Tracy')).toEqual(['DMS | Spinser Tracy'])
+  expect(FIELD_DELIMITERS.album).toEqual([' / '])
+  expect(joinValues(['A', 'B'], 'album')).toBe('A / B')
 })
 
 test('never splits on a comma, ampersand, bare slash, " x " or "feat."', () => {
@@ -80,7 +78,7 @@ test('an unknown field is never split', () => {
 })
 
 test('joining is the inverse of splitting for approved delimiters', () => {
-  const raw = 'Hip Hop / R&B / Soul'
+  const raw = 'Hip Hop | R&B | Soul'
   expect(joinValues(splitValue('genre', raw))).toBe(raw)
 })
 

@@ -11,7 +11,7 @@ import { isChange, type ArtistIndex, type Confidence, type CleanReason } from '.
 export interface RecleanTrack {
   id: number
   // The artist names this track currently has: its artist tags if it has any,
-  // else its artist column split on " / ". Already split.
+  // else its artist column split on " | ". Already split.
   parts: string[]
 }
 

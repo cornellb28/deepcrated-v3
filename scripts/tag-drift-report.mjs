@@ -22,20 +22,19 @@
 // can be made on evidence rather than on a rule that would be wrong ~40
 // times.
 //
-// The delimiter is " / " (settled 2026-09-25): it is what TagInput and
-// BulkEditModal already join with, and what the existing column values
-// already round-trip through. Splitting on it leaves "R&B" intact.
+// The delimiter is " | " (sync-identity migration; was " / " until then, and
+// is still read). Splitting on it leaves "R&B" intact.
 
 import Database from 'better-sqlite3'
 import { existsSync, writeFileSync } from 'fs'
 import { homedir } from 'os'
 import { join } from 'path'
 
-const DELIM = ' / '
+const DELIM = ' | '
 // Per field, matching FIELD_DELIMITERS in src/main/tagFields.ts. grouping also
 // takes ' | ' because the files' own TIT1 frame uses it.
-const FIELD_DELIMS = { grouping: [' / ', ' | '] }
-const delimsFor = (f) => FIELD_DELIMS[f] ?? [DELIM]
+const FIELD_DELIMS = { album: [' / '] }
+const delimsFor = (f) => FIELD_DELIMS[f] ?? [DELIM, ' / ']
 
 // artist is the reference implementation; the rest are being migrated onto
 // it. comment and album joined the set on 2026-09-25 — both are TagInput

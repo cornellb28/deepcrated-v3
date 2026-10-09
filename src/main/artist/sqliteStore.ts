@@ -81,7 +81,7 @@ export function createSqliteArtistStore(
         .all() as ArtistTagEntry[]
     },
 
-    // Spellings as they stand in tracks.artist, split on the library's " / ".
+    // Spellings as they stand in tracks.artist, split on the library's " | " (legacy " / " still accepted).
     librarySpellings(): LibrarySpelling[] {
       const rows = db
         .prepare(

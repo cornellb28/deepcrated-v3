@@ -1,7 +1,8 @@
 import Database, { RunResult, Statement } from 'better-sqlite3'
 import { app } from 'electron'
 import { join, basename, dirname, relative, isAbsolute } from 'path'
-import { mkdirSync } from 'fs'
+import { copyFileSync, mkdirSync } from 'fs'
+import { applySyncSchema, migrateDelimiter, DELIMITER_MIGRATION_VERSION } from './syncSchema'
 import { isTagBackedField, joinValues as joinTagValues, normalizeTagValue } from './tagFields'
 import { tmpdir } from 'os'
 import { EventEmitter } from 'events'
@@ -723,6 +724,22 @@ db.exec(`
   );
 `)
 
+// ─── Sync identity + delimiter (user_version 1 and 2) ────────────────────
+// Must run after every tracks column above exists: the stamping triggers name
+// them. Snapshot first — a real library is about to have columns, triggers and
+// display strings changed in place.
+if (Number(db.pragma('user_version', { simple: true })) < DELIMITER_MIGRATION_VERSION) {
+  try {
+    db.pragma('wal_checkpoint(TRUNCATE)')
+    copyFileSync(dbPath, `${dbPath}.backup-pre-sync-${new Date().toISOString().replace(/[:.]/g, '-')}`)
+  } catch (err) {
+    // A failed snapshot must not stop the app opening; say so loudly.
+    console.error('[db] pre-sync-migration backup failed:', err)
+  }
+}
+applySyncSchema(db)
+migrateDelimiter(db)
+
 // ─── Prepared statements/Queries ─────────────────────────────────────────────
 // Prepared statements are compiled once and run fast
 // Think of them as saved SQL commands ready to fire
@@ -1392,7 +1409,10 @@ function deriveFieldValue(trackId: number, field: string): string | null {
     )
     .all(trackId, field) as { value: string }[]
 
-  return joinTagValues(rows.map((r) => r.value))
+  return joinTagValues(
+    rows.map((r) => r.value),
+    field
+  )
 }
 
 export function getDerivedFieldValue(trackId: number, field: string): string | null {
@@ -1488,13 +1508,17 @@ export function renameTagAndCascade(
       db.prepare('UPDATE tags SET value = ? WHERE id = ?').run(normalized, tagId)
     }
 
-    for (const trackId of affected) {
-      const derived = deriveFieldValue(trackId, tag.field)
-      db.prepare(
-        `UPDATE tracks SET ${tag.field} = @value, updated_at = datetime('now') WHERE id = @id`
-      ).run({ id: trackId, value: derived })
+    // tag.field goes into SQL, so only an allow-listed field has a derived
+    // column to recompute (custom/vibe/venue tags have none).
+    if (isTagBackedField(tag.field)) {
+      for (const trackId of affected) {
+        const derived = deriveFieldValue(trackId, tag.field)
+        db.prepare(
+          `UPDATE tracks SET ${tag.field} = @value, updated_at = datetime('now') WHERE id = @id`
+        ).run({ id: trackId, value: derived })
+      }
+      tracksUpdated = affected.length
     }
-    tracksUpdated = affected.length
   })
   run()
 
