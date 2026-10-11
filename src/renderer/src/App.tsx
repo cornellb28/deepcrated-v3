@@ -661,16 +661,29 @@ function App(): React.JSX.Element {
     await window.api.fs.cancelCopy(jobId)
   }
 
+  // A dropped or picked file that could be one of several missing tracks is
+  // held rather than imported (see holdForRelinkReview in main/db.ts).
+  function notifyHeldForReview(count: number): void {
+    if (count === 0) return
+    toast(`${count} file${count === 1 ? '' : 's'} need you to pick a match`, {
+      description:
+        'They could be tracks already in your library. Choose in Settings › Library › Review changes.'
+    })
+  }
+
   // Add import files handler — shared by ImportDropzone's onImportFiles
   // (dialog button or dropped loose files, already-resolved paths either way).
   async function handleImportFiles(filepaths: string[]): Promise<void> {
     if (!filepaths.length) return
 
     setAnalyzing(true)
+    let held = 0
     for (const filepath of filepaths) {
-      await window.api.importFile(filepath)
+      const result = await window.api.importFile(filepath)
+      if (result.needsReview) held++
       window.api.db.allTracks().then(setTracks)
     }
+    notifyHeldForReview(held)
     setAnalyzing(false)
   }
 
@@ -697,9 +710,12 @@ function App(): React.JSX.Element {
         })
       }
     }
+    let held = 0
     for (const filepath of audioFiles) {
-      await window.api.importFile(filepath)
+      const result = await window.api.importFile(filepath)
+      if (result.needsReview) held++
     }
+    notifyHeldForReview(held)
     const all = await window.api.db.allTracks()
     setTracks(all)
     // Same staleness gap as handleImport — a dropped folder can register a

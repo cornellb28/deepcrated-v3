@@ -1,5 +1,6 @@
 import {
   computeCanonicalTrackId,
+  computeStatsTrackId,
   fingerprintHash,
   normalizeIsrc,
   normalizeMbid
@@ -20,6 +21,7 @@ interface Row {
   tagsRead: boolean
   isrc: string | null
   mbid: string | null
+  mbidSource: 'tag' | 'lookup' | null
   fp: string | null
   fpDuration: number | null
   fpHash: string | null
@@ -40,6 +42,7 @@ export class FakeIdentityStore implements IdentityStore {
       tagsRead: false,
       isrc: null,
       mbid: null,
+      mbidSource: null,
       fp: null,
       fpDuration: null,
       fpHash: null,
@@ -63,7 +66,11 @@ export class FakeIdentityStore implements IdentityStore {
   setIdentityTags(id: number, isrc: string | null, mbid: string | null): void {
     const r = this.row(id)
     r.isrc = normalizeIsrc(isrc) ?? r.isrc
-    r.mbid = normalizeMbid(mbid) ?? r.mbid
+    const tagMbid = normalizeMbid(mbid)
+    if (tagMbid) {
+      r.mbid = tagMbid
+      r.mbidSource = 'tag'
+    }
     r.tagsRead = true
   }
 
@@ -110,7 +117,10 @@ export class FakeIdentityStore implements IdentityStore {
   setRecordingId(id: number, recordingId: string): void {
     const r = this.row(id)
     const mbid = normalizeMbid(recordingId)
-    if (mbid && !r.mbid) r.mbid = mbid
+    if (mbid && !r.mbid) {
+      r.mbid = mbid
+      r.mbidSource = 'lookup'
+    }
   }
 
   getCache(hash: string): LookupCacheEntry | null {
@@ -138,6 +148,17 @@ export class FakeIdentityStore implements IdentityStore {
     return computeCanonicalTrackId({
       isrc: r.isrc,
       musicbrainz_recording_id: r.mbid,
+      fingerprint_hash: r.fpHash
+    })
+  }
+
+  // Not part of IdentityStore: mirrors readStatsTrackId in the SQLite store.
+  getStatsTrackId(id: number): string | null {
+    const r = this.row(id)
+    return computeStatsTrackId({
+      isrc: r.isrc,
+      musicbrainz_recording_id: r.mbid,
+      recording_id_source: r.mbidSource,
       fingerprint_hash: r.fpHash
     })
   }

@@ -5,15 +5,27 @@ code yet; desktop only carries the identity and change-tracking the sync layer
 will read (`src/main/syncSchema.ts`). The mobile mirror is
 `deepcrated-mobile/src/db/migrations/001_initial.ts`.
 
+Decisions of 2026-10-09 (track identities, keys, retention, tiers, ownership)
+are folded in below. **TODO(sync): none of them is implemented yet** — no
+desktop schema, Supabase migration or mobile mirror exists for
+`track_identities`.
+
 ## Synced tables
 
-`tracks`, `tags`, `track_tags`, `crates`, `crate_tracks`.
+`tracks`, `tags`, `track_tags`, `crates`, `crate_tracks`, `track_identities`.
 
 Not synced, on either side: `filepath`, `filename`, `folder_id`, `folders`,
 `library_roots`, `partial_hash`, `missing`, `last_seen_at`, artwork columns,
-`waveform`, identity/fingerprint columns, `boards`/`board_id`, `needs_sync`,
-`pending_changes`, `plays`, `stats_*`, `last_exported_at`, `last_modified`,
-watcher state. Changing only these never produces a sync change.
+`waveform`, `boards`/`board_id`, `needs_sync`, `pending_changes`, `plays`,
+`stats_*`, `last_exported_at`, `last_modified`, watcher state. Changing only
+these never produces a sync change.
+
+Track identity is synced only through the separate `track_identities` table
+(see below), never as columns on `tracks`. These identity columns stay
+device-local: `canonical_track_id` (each device computes it from the synced
+inputs), `acoustid_fingerprint`, `fingerprint_duration`, `fingerprint_status`,
+`fingerprint_hash` (only its keyed form, `fingerprint_key`, is sent),
+`identity_tags_read`, and the `identity_lookup_cache` table.
 
 ## Conventions
 
@@ -119,6 +131,63 @@ its track or tag.
 Desktop stores `parent_crate_id`; the sync layer resolves it to the parent's
 uuid. A parent may arrive after its child.
 
+### track_identities
+
+A track's public recording identifiers, kept in their own table rather than
+on `tracks`. The identity backfill writes in the background; if these were
+watched `tracks` columns, a backfill stamp could make a device's stale copy
+of a track win last-write-wins over a newer edit made elsewhere.
+
+| Column | Type | Notes |
+|---|---|---|
+| track_uuid | uuid not null | → `tracks.client_uuid`; no database foreign key (may arrive before its track) |
+| isrc | text | from the file's tags |
+| musicbrainz_recording_id | text | from the tags or the optional online lookup |
+| recording_id_source | text | `tag` or `lookup`; null when there is no recording id |
+| fingerprint_key | text | per-account keyed hash, see Key handling |
+
+Plus `client_uuid`, `updated_at`, `deleted_at` like every table. At most one
+live row per `track_uuid`.
+
+Deleting a track also deletes its `track_identities` row, and that delete is
+recorded in `sync_tombstones` like any other synced row.
+
+**`fingerprint_key`** = HMAC(account key, `fingerprint_hash`). The raw
+`fingerprint_hash` and `acoustid_fingerprint` never leave the device. Keying
+per account means a synced row cannot be joined to the `fp:` id that
+anonymous stats carries, while matching a user's own tracks across their
+own devices still works (same account, same key version).
+
+**Merge rule** (every client applies exactly this, field by field):
+
+1. A tag-sourced value beats a lookup-sourced one.
+2. A non-empty value beats an empty one.
+3. Within the same source, the later `updated_at` wins (tie: the larger
+   `client_uuid`, as everywhere else).
+
+Identity values are facts, not edits, so plain row-level last-write-wins
+does not apply to this table.
+
+**Key handling.** The server issues each signed-in device a **versioned** key
+derived from a master secret. The master secret lives in Vercel environment
+settings, never in the database or any client. Devices store their key with
+`safeStorage`. Each `fingerprint_key` records the key version it was made
+with, so the key can be rotated: after a rotation devices re-key their rows,
+and rows of an old version are not compared with rows of a new one.
+**TODO(sync): issuing endpoint, derivation and the version column are not
+designed in detail yet.**
+
+**Matching.** A shared ISRC, recording id or `fingerprint_key` is a
+suggestion, shown as "probably the same". It never merges, deletes or
+relinks anything on its own: ISRCs get reused on remixes, and a fingerprint
+only matches near-identical audio.
+
+**Paid features** (cross-device recognition, cloud duplicates, restore) use
+only tag-sourced ids (`isrc`, and `musicbrainz_recording_id` where
+`recording_id_source = 'tag'`) plus `fingerprint_key`, until AcoustID
+commercial terms are sorted. Lookup-sourced recording ids still sync, but no
+paid feature may depend on them. Local features may use either.
+
 ### crate_tracks
 
 | Column | Type | Notes |
@@ -156,8 +225,11 @@ the track already had the surviving tag, deletes it (tombstone).
 ## Delete semantics
 
 - **Wire / Supabase / mobile**: soft delete — set `deleted_at` (epoch ms) and
-  bump `updated_at`. A delete is just a newer version of the row. Never
-  hard-delete on the server; clients need the tombstone to learn of the delete.
+  bump `updated_at`. A delete is just a newer version of the row. Clients
+  need the tombstone to learn of the delete, so the server only removes it on
+  the schedule in Retention below: the row's content (and any stored audio)
+  after 14 days, the bare delete record (`client_uuid`, `deleted_at`,
+  `updated_at`) after 90.
 - **Desktop**: still hard-deletes (its `PRIMARY KEY` / `UNIQUE` constraints
   would make `INSERT OR IGNORE` silently no-op against a soft-deleted row).
   `BEFORE DELETE` triggers record `sync_tombstones(table_name, row_uuid,
@@ -166,8 +238,8 @@ the track already had the surviving tag, deletes it (tombstone).
 - The desktop sync layer pushes each tombstone as `deleted_at` on that uuid,
   then prunes pushed tombstones. **TODO(sync): pruning and push are not
   implemented; `sync_tombstones` currently only grows.**
-- A deleted-then-recreated thing is a **new** uuid. Tombstones are never
-  cleared.
+- A deleted-then-recreated thing is a **new** uuid. A deleted uuid is never
+  reused or brought back, even after its delete record has expired.
 - **Pull of a remote delete** onto desktop is a hard delete of the local row.
   That fires the tombstone trigger, so the sync layer must delete the
   tombstone it just caused or it will echo the delete back.
@@ -201,7 +273,52 @@ columns, with the previous values kept in `_delimiter_backup_v2`.
 Per-row last-write-wins on `updated_at`. Ties: the larger `client_uuid` string
 wins, so every client picks the same winner. A row with `deleted_at` set
 wins over an older live version, and loses to a live version with a newer
-`updated_at`.
+`updated_at`. `track_identities` is the exception: it uses its own merge rule
+(see that table).
+
+## Retention
+
+Decided 2026-10-09. This closes the account contract's open question on the
+grace period before cloud data is deleted.
+
+| Case | Rule |
+|---|---|
+| Deleted track | Content and stored audio purged from the cloud **14 days** after `deleted_at` |
+| Delete records | The bare record (uuid + timestamps) kept **90 days**, then removed |
+| Device offline > 90 days | Must do a **full re-check** against the server before syncing again: it may have missed deletes whose records have since expired, so it cannot rely on incremental pull |
+| Canceled subscription | Full access until the end of the paid period, then **60 days read-only** with a warning email, then cloud data is deleted |
+| Deleted account | Purged after **60 days**, with an option to delete immediately |
+
+**TODO(sync): none of these jobs exist yet** (purge, record expiry, the
+read-only state, the warning email, the full re-check).
+
+## Tiers
+
+Decided 2026-10-09. Local features stay free and are never gated.
+
+| Plan | What it adds |
+|---|---|
+| Free | Desktop only. No cloud sync, no mobile |
+| Sync | **$10/month.** Cross-device tags and metadata, cloud duplicates, and **10 GB** of audio storage in Cloudflare R2 |
+| Library | 250 GB |
+| Touring | 1 TB |
+
+**Conflicts with the account contract (v4, 2026-10-08)**, which still says
+Sync is $5/month with no audio upload or cloud storage. That contract (an
+identical copy in `deepcrated-web`) is the source of truth for plans,
+prices and caps until it is updated, and its margin guardrail must be
+re-checked for 10 GB on Sync before it is. **TODO(contract): update the
+account contract in both repos.** Library and Touring prices are unchanged
+there.
+
+## Schema ownership
+
+`deepcrated-web` owns **all** Supabase migrations, including `stats_events`.
+**TODO(ownership): `stats_events` still lives in this repo**
+(`supabase/migrations/20261006000000_stats_events.sql`,
+`20261006000100_stats_events_canonical_id.sql`) and moves to `deepcrated-web`.
+`tests/unit/stats-schema.spec.ts` reads those files to check them against the
+allowlist, so that test needs a new source when they move.
 
 ## Desktop schema reference
 

@@ -290,7 +290,8 @@ const api = {
   // Crate Health (read-only)
   health: {
     summary: () => ipcRenderer.invoke('health:summary'),
-    queue: (checkId: string) => ipcRenderer.invoke('health:queue', checkId)
+    queue: (checkId: string) => ipcRenderer.invoke('health:queue', checkId),
+    duplicateSignals: () => ipcRenderer.invoke('health:duplicate-signals')
   },
 
   // Tracks
@@ -505,6 +506,9 @@ const api = {
     pendingChanges: () => ipcRenderer.invoke('watcher:pending-changes'),
     acceptChange: (id: number) => ipcRenderer.invoke('watcher:accept-change', id),
     ignoreChange: (id: number) => ipcRenderer.invoke('watcher:ignore-change', id),
+    // A file held because it could be one of several missing tracks.
+    relinkHeld: (changeId: number) => ipcRenderer.invoke('watcher:relink-held', changeId),
+    importHeld: (filepath: string) => ipcRenderer.invoke('watcher:import-held', filepath),
     start: (rootId: number, rootPath: string) =>
       ipcRenderer.invoke('watcher:start', rootId, rootPath),
     stop: (rootId: number) => ipcRenderer.invoke('watcher:stop', rootId)

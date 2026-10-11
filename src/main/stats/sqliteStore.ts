@@ -3,6 +3,7 @@
 // and migrations stay in db.ts and this file is only the queries.
 
 import type Database from 'better-sqlite3'
+import { readStatsTrackId } from '../identity/sqliteStore'
 import type { ConsentEvent, NewQueuedStat, QueuedStat, StatsStore } from './types'
 
 const INSTALL_ID_KEY = 'stats_install_id'
@@ -85,11 +86,7 @@ export function createSqliteStatsStore(db: Database.Database): StatsStore {
       delSetting.run(INSTALL_ID_KEY)
     },
 
-    getCanonicalTrackId(trackId: number): string | null {
-      const row = db.prepare(`SELECT canonical_track_id FROM tracks WHERE id = ?`).get(trackId) as
-        { canonical_track_id: string | null } | undefined
-      return row?.canonical_track_id ?? null
-    },
+    getStatsTrackId: (trackId: number) => readStatsTrackId(db, trackId),
 
     isTrackPrivate(trackId: number): boolean {
       const row = trackPrivate.get(trackId) as { stats_private: number } | undefined

@@ -38,6 +38,15 @@ const ISSUE_CAPTIONS: Record<AnalysisIssue, string> = {
   timeout: 'Analysis timed out'
 }
 
+// Why a track is in the duplicates queue, shown under its row. The two text
+// signals keep their wording; a shared canonical id (ISRC, recording id or
+// audio fingerprint) is only ever "probably the same" — never a verdict.
+const DUPLICATE_CAPTIONS: Record<DuplicateSignal, string> = {
+  name: 'Same artist and title',
+  size: 'Same size and length',
+  canonical: 'Probably the same recording'
+}
+
 // Store updates arrive in bursts (analysis ticks, import batches, watcher
 // events); one refetch per burst is plenty.
 const REFRESH_DEBOUNCE_MS = 300
@@ -50,6 +59,7 @@ export function HealthSection(): React.JSX.Element {
   const [openId, setOpenId] = useState<HealthCheckId | null>(null)
   const [artistDialogOpen, setArtistDialogOpen] = useState(false)
   const [queueIds, setQueueIds] = useState<number[]>([])
+  const [duplicateSignals, setDuplicateSignals] = useState<Record<number, DuplicateSignal[]>>({})
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [anchorId, setAnchorId] = useState<number | null>(null)
 
@@ -68,13 +78,17 @@ export function HealthSection(): React.JSX.Element {
     lastOpenId.current = openId
     const timer = setTimeout(async () => {
       try {
-        const [nextSummary, nextQueue] = await Promise.all([
+        const [nextSummary, nextQueue, nextSignals] = await Promise.all([
           window.api.health.summary(),
-          openId ? window.api.health.queue(openId) : Promise.resolve<number[]>([])
+          openId ? window.api.health.queue(openId) : Promise.resolve<number[]>([]),
+          openId === 'duplicates'
+            ? window.api.health.duplicateSignals()
+            : Promise.resolve<Record<number, DuplicateSignal[]>>({})
         ])
         if (seq !== requestSeq.current) return
         setSummary(nextSummary)
         setQueueIds(nextQueue)
+        setDuplicateSignals(nextSignals)
         setFailed(false)
       } catch {
         if (seq === requestSeq.current) setFailed(true)
@@ -369,6 +383,17 @@ export function HealthSection(): React.JSX.Element {
                       }}
                     >
                       {ISSUE_CAPTIONS[track.analysis_error] ?? 'Problem reading this file'}
+                    </div>
+                  )}
+                  {openCheck.id === 'duplicates' && duplicateSignals[track.id] && (
+                    <div
+                      style={{
+                        fontSize: '11px',
+                        color: '#8a86c8',
+                        padding: '0 12px 8px 44px'
+                      }}
+                    >
+                      {duplicateSignals[track.id].map((s) => DUPLICATE_CAPTIONS[s]).join(' · ')}
                     </div>
                   )}
                 </React.Fragment>

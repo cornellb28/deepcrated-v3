@@ -1,6 +1,6 @@
 // The one place the privacy page URL lives. Placeholder until the real page
 // exists.
-export const PRIVACY_URL = 'https://deepcrate.app/privacy'
+export const PRIVACY_URL = 'https://deepcrated.com/privacy'
 
 // Shown under the "Contribute anonymous stats" switch. Changing this wording
 // in a way that matters means bumping CONSENT_TEXT_VERSION in
@@ -13,4 +13,4 @@ export const STATS_CONSENT_COPY =
 export const IDENTITY_LOOKUP_KEY = 'identity_lookup_enabled'
 
 export const IDENTITY_LOOKUP_COPY =
-  'Look up tracks on AcoustID and MusicBrainz so they can be recognized across libraries. This sends a short audio fingerprint and your IP address to those services, never file names or your account. Off by default.'
+  "Match tracks that have no ID tags against AcoustID and MusicBrainz. This sends each track's audio fingerprint and length, plus your IP address, to those services. It never sends file names, paths or your account, and never changes your files. Matches already found stay after you turn this off. Off by default."

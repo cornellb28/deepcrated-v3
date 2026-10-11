@@ -274,6 +274,7 @@ export function SettingsView({
       const parts: string[] = []
       if (result.imported) parts.push(`${result.imported} checked`)
       if (result.relinked) parts.push(`${result.relinked} relinked`)
+      if (result.needsReview) parts.push(`${result.needsReview} to review`)
       // Deliberately worded "missing", not "removed" — nothing was deleted.
       if (result.swept) parts.push(`${result.swept} now missing`)
       if (result.skippedRoots?.length) {
@@ -675,7 +676,7 @@ export function SettingsView({
 
             <Section
               title="Track identification"
-              description="Recognizing tracks by their audio, so the same song is the same song everywhere."
+              description="DeepCrated reads ID tags and makes an audio fingerprint on your computer to recognize the same song across files. Nothing leaves your device unless you turn on the option below."
               last
             >
               <IdentityLookupSwitch />
