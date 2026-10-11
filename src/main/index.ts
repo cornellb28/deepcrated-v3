@@ -134,6 +134,7 @@ import {
   type SeratoImportTally
 } from './serato/seratoImport'
 import { checkBuildStatus } from './staleBuild'
+import { readThirdPartyNotices } from './licenses'
 import { setDeepLinkHandler, setSecondInstanceHandler } from './bootBridge'
 import {
   focusLaunchScreen,
@@ -3819,6 +3820,9 @@ const appStartup = app.whenReady().then(() => {
   // ── Launch screen hooks ───────────────────────────────────
   // The renderer's first library load finished (or failed). Only the first
   // report matters; later ones (a dev reload) are no-ops.
+  // Settings > About: licence texts for software shipped with the app.
+  ipcMain.handle('app:licenses', () => readThirdPartyNotices())
+
   ipcMain.handle('app:library-ready', () => {
     markLibraryReady()
   })

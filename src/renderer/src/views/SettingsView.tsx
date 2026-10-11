@@ -8,6 +8,8 @@ import { ReconciliationModal } from '@renderer/components/ReconciliationModal'
 import { SeratoImportConfirmDialog } from '@renderer/components/SeratoImportConfirmDialog'
 import { StatsConsentSwitch } from '../components/StatsConsentSwitch'
 import { IdentityLookupSwitch } from '../components/IdentityLookupSwitch'
+import { FingerprintStatus } from '../components/FingerprintStatus'
+import { OpenSourceNotices } from '../components/OpenSourceNotices'
 import { ArtistCleanSettings } from '../components/ArtistCleanSettings'
 import { useLibraryStore } from '../store/useLibraryStore'
 import { FilenameTemplateEditor } from '../components/FilenameTemplateEditor'
@@ -41,13 +43,14 @@ const SERATO_OVERWRITE_KEY = 'serato_overwrite_existing'
 // whichever tab was open last.
 export const SETTINGS_TAB_KEY = 'settings_tab'
 
-type TabId = 'account' | 'plan' | 'library' | 'serato' | 'privacy'
+type TabId = 'account' | 'plan' | 'library' | 'serato' | 'privacy' | 'about'
 const TABS: { id: TabId; label: string }[] = [
   { id: 'account', label: 'Account' },
   { id: 'plan', label: 'Plan' },
   { id: 'library', label: 'Library' },
   { id: 'serato', label: 'Serato' },
-  { id: 'privacy', label: 'Privacy' }
+  { id: 'privacy', label: 'Privacy' },
+  { id: 'about', label: 'About' }
 ]
 
 function isTabId(value: string | null): value is TabId {
@@ -56,7 +59,8 @@ function isTabId(value: string | null): value is TabId {
     value === 'plan' ||
     value === 'library' ||
     value === 'serato' ||
-    value === 'privacy'
+    value === 'privacy' ||
+    value === 'about'
   )
 }
 
@@ -679,7 +683,19 @@ export function SettingsView({
               description="DeepCrated reads ID tags and makes an audio fingerprint on your computer to recognize the same song across files. Nothing leaves your device unless you turn on the option below."
               last
             >
+              <FingerprintStatus />
               <IdentityLookupSwitch />
+            </Section>
+          </TabsContent>
+
+          {/* ── About ───────────────────────────────────────────────── */}
+          <TabsContent value="about">
+            <Section
+              title="Open-source notices"
+              description="DeepCrated ships these components with the app, under their own licences."
+              last
+            >
+              <OpenSourceNotices />
             </Section>
           </TabsContent>
         </div>

@@ -194,6 +194,8 @@ const api = {
 
   // The first library load finished (or failed). Main keeps the launch
   // screen up until then; see src/main/launchScreen.ts.
+  // Settings > About: third-party licence notices (read-only text).
+  licenses: () => ipcRenderer.invoke('app:licenses'),
   libraryReady: () => ipcRenderer.invoke('app:library-ready'),
   libraryLoadFailed: (message: string) => ipcRenderer.invoke('app:library-load-failed', message),
 

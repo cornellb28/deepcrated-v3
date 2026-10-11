@@ -9,7 +9,13 @@ import { join } from 'path'
 import { getIdentityStore, getSetting } from '../db'
 import { readIdentityTags } from '../sidecar'
 import { createEngine } from './engine'
-import { createFingerprinter, findFpcalc, type FingerprintFn } from './fpcalc'
+import {
+  createFingerprinter,
+  FpcalcError,
+  getFpcalc,
+  type FingerprintFn,
+  type FpcalcInfo
+} from './fpcalc'
 import { createLookup, isLookupConfigured, type Lookup, type LookupConfig } from './lookup'
 import type { IdentityProgress } from './types'
 
@@ -33,6 +39,9 @@ export interface IdentityStatus {
   lookupAvailable: boolean
   // Whether a fingerprinter was found on this machine.
   fingerprintAvailable: boolean
+  // Which one, for Settings: bundled with the app, or found on PATH.
+  fingerprintSource: FpcalcInfo['source']
+  fingerprintVersion: string | null
 }
 
 export interface IdentityRuntimeDeps {
@@ -61,15 +70,48 @@ function lookupConfig(): LookupConfig | null {
   return isLookupConfigured(config) ? config : null
 }
 
-function fingerprinter(): FingerprintFn | null {
-  const binary = findFpcalc({
+function fpcalc(): Promise<FpcalcInfo> {
+  return getFpcalc({
     platform: process.platform,
     arch: process.arch,
     packaged: app.isPackaged,
     resourcesPath: process.resourcesPath,
     projectRoot: join(__dirname, '..', '..')
   })
-  return binary ? createFingerprinter(binary) : null
+}
+
+// One concise warning per session: a broken fpcalc fails every track the
+// same way, and the engine already records each one as failed.
+let warnedFingerprintFailure = false
+
+function fingerprinter(info: FpcalcInfo): FingerprintFn | null {
+  if (!info.path) return null
+  const run = createFingerprinter(info.path)
+  return async (filepath) => {
+    try {
+      return await run(filepath)
+    } catch (err) {
+      if (!warnedFingerprintFailure) {
+        warnedFingerprintFailure = true
+        const kind = err instanceof FpcalcError ? err.kind : 'unknown'
+        console.warn(
+          `[identity] fingerprinting failed (${kind}): ${(err as Error).message}. ` +
+            'Further failures this session are not logged.'
+        )
+      }
+      throw err
+    }
+  }
+}
+
+function fingerprintFields(
+  info: FpcalcInfo
+): Pick<IdentityStatus, 'fingerprintAvailable' | 'fingerprintSource' | 'fingerprintVersion'> {
+  return {
+    fingerprintAvailable: info.path !== null,
+    fingerprintSource: info.source,
+    fingerprintVersion: info.version
+  }
 }
 
 function buildLookup(): Lookup | null {
@@ -83,20 +125,31 @@ function buildLookup(): Lookup | null {
   })
 }
 
-export function getIdentityStatus(): IdentityStatus {
+export async function getIdentityStatus(): Promise<IdentityStatus> {
+  const info = await fpcalc()
   return {
     active: running,
     phase: lastStatus?.phase ?? 'idle',
     progress: store.progress(),
     lookupAvailable: lookupConfig() !== null,
-    fingerprintAvailable: fingerprinter() !== null
+    ...fingerprintFields(info)
   }
 }
 
 export function kickIdentity(): void {
   if (running || !deps) return
   running = true
-  const fingerprint = fingerprinter()
+  void fpcalc()
+    .then(runBackfill)
+    .catch((err) => {
+      // Never leave the backfill marked running: the next kick would no-op.
+      running = false
+      console.warn('[identity] backfill could not start:', (err as Error).message)
+    })
+}
+
+function runBackfill(info: FpcalcInfo): void {
+  const fingerprint = fingerprinter(info)
   const engine = createEngine({
     store,
     now: () => Date.now(),
@@ -112,7 +165,7 @@ export function kickIdentity(): void {
         phase: p.phase,
         progress: p.progress,
         lookupAvailable: lookupConfig() !== null,
-        fingerprintAvailable: fingerprint !== null
+        ...fingerprintFields(info)
       }
       deps?.send(lastStatus)
     }
@@ -120,10 +173,10 @@ export function kickIdentity(): void {
   void engine
     .run()
     .catch((err) => console.warn('[identity] backfill stopped:', (err as Error).message))
-    .finally(() => {
+    .finally(async () => {
       running = false
       // Whatever the run ended on, the UI row must go away.
-      const done: IdentityStatus = { ...getIdentityStatus(), active: false, phase: 'idle' }
+      const done: IdentityStatus = { ...(await getIdentityStatus()), active: false, phase: 'idle' }
       lastStatus = done
       deps?.send(done)
     })
@@ -132,6 +185,15 @@ export function kickIdentity(): void {
 export function startIdentityBackfill(d: IdentityRuntimeDeps): void {
   deps = d
   if (timer) return
+  // Find fpcalc now, off the critical path, so the first status request
+  // and the first run do not wait on it. One line per session says which.
+  void fpcalc().then((info) =>
+    console.log(
+      info.path
+        ? `[identity] fingerprinting with ${info.source} fpcalc ${info.version} (${info.path})`
+        : '[identity] fingerprinting not available: no fpcalc bundled or on PATH'
+    )
+  )
   setTimeout(kickIdentity, FIRST_RUN_DELAY_MS).unref()
   timer = setInterval(kickIdentity, INTERVAL_MS)
   timer.unref()

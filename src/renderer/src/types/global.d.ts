@@ -90,6 +90,9 @@ declare global {
       // this Electron process loaded them — the renderer is newer than the
       // code it is talking to, and only a full restart fixes that.
       buildStatus: () => Promise<{ stale: boolean; changed: string[] }>
+      licenses: () => Promise<
+        { id: string; title: string; files: { name: string; text: string }[] }[]
+      >
       libraryReady: () => Promise<void>
       libraryLoadFailed: (message: string) => Promise<void>
 
@@ -639,6 +642,9 @@ declare global {
     // An AcoustID key and MusicBrainz contact are configured.
     lookupAvailable: boolean
     fingerprintAvailable: boolean
+    // 'bundled' = shipped with the app, 'system' = found on PATH.
+    fingerprintSource: 'bundled' | 'system' | null
+    fingerprintVersion: string | null
   }
 
   interface ConsentState {

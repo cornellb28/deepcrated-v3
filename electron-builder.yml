@@ -10,6 +10,9 @@ directories:
 files:
   - out/**
   - resources/**
+  # Every platform's fpcalc is fetched into resources/fpcalc/; each build
+  # ships only its own copy, via extraResources below.
+  - '!resources/fpcalc/**'
 asarUnpack:
   - resources/**
 # The PyInstaller sidecar builds (analyze/, edit_tags/ — one folder each,
@@ -22,6 +25,16 @@ extraResources:
     filter:
       - analyze/**
       - edit_tags/**
+  # Chromaprint fpcalc for this build's platform and arch only, fetched and
+  # checksum-verified by scripts/fetch-fpcalc.mjs into
+  # resources/fpcalc/<platform>-<arch>/. Lands at <resources>/fpcalc/, where
+  # getFpcalc() (src/main/identity/fpcalc.ts) looks first. Licence notices
+  # ship with resources/licenses/. The executable bit is kept from the file.
+  - from: resources/fpcalc/${platform}-${arch}
+    to: fpcalc
+    filter:
+      - fpcalc
+      - fpcalc.exe
 # Deep link for the OAuth and password-reset callbacks. app.setAsDefault-
 # ProtocolClient registers this at runtime, which is what makes it work in
 # dev, but a PACKAGED app needs the scheme declared in its bundle too:

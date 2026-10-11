@@ -24,3 +24,7 @@ delimiter-dry-run.csv
 # PyInstaller work files from sidecar/build.sh (sidecar/dist is covered by "dist")
 sidecar/build/
 sidecar/*.spec
+
+# Chromaprint fpcalc binaries, fetched and checksum-verified by
+# scripts/fetch-fpcalc.mjs (the script and scripts/fpcalc-*.sha256 are tracked)
+resources/fpcalc/
