@@ -109,6 +109,7 @@ export function launchScreenPainted(): Promise<void> {
 
 export function reportLaunchStage(stage: LaunchStage): void {
   if (failed) return
+  console.log(`[boot] stage "${stage}" at ${Date.now() - openedAt} ms`)
   lastStage = STAGE_TEXT[stage]
   splash?.webContents.send('splash:stage', lastStage)
 }
@@ -135,6 +136,9 @@ export function handOffToMainWindow(win: BrowserWindow): boolean {
   reportLaunchStage('tracks')
   win.once('ready-to-show', () => {
     mainPainted = true
+    console.log(
+      `[boot] main window painted ${Date.now() - openedAt} ms after the launch screen opened`
+    )
     maybeReveal()
     setTimeout(() => {
       if (revealed || failed) return
@@ -154,6 +158,9 @@ export function handOffToMainWindow(win: BrowserWindow): boolean {
 
 // The renderer finished its first library load ('app:library-ready').
 export function markLibraryReady(): void {
+  if (!libraryReady && !revealed) {
+    console.log(`[boot] library loaded ${Date.now() - openedAt} ms after the launch screen opened`)
+  }
   libraryReady = true
   maybeReveal()
 }

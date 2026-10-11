@@ -8,5 +8,9 @@
     <true/>
     <key>com.apple.security.cs.allow-dyld-environment-variables</key>
     <true/>
+    <!-- The PyInstaller sidecar (Resources/sidecar) loads its own bundled
+         libraries, which are not signed by the same team as the app. -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
   </dict>
 </plist>

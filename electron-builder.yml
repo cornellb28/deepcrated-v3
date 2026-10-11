@@ -1,16 +1,27 @@
-appId: com.electron.app
+appId: com.deepcrated.app
 productName: DeepCrated
 directories:
   buildResources: build
+# An allow-list, not a deny-list: only the built app goes into app.asar.
+# package.json and the production node_modules are added by electron-builder
+# itself. The old deny-list packed the whole repo, which would have shipped
+# the sidecar venv, tests, docs, supabase/ and — worst — backups/ and the
+# delimiter dry-run files, which hold copies of the developer's own library.
 files:
-  - '!**/.vscode/*'
-  - '!src/*'
-  - '!electron.vite.config.{js,ts,mjs,cjs}'
-  - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
-  - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
-  - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+  - out/**
+  - resources/**
 asarUnpack:
   - resources/**
+# The PyInstaller sidecar builds (analyze/, edit_tags/ — one folder each,
+# see sidecar/build.sh), made before packaging. The packaged app runs them
+# from <resources>/sidecar/<name>/<name> (getPython in src/main/sidecar.ts);
+# without them it cannot read tags, analyze or import anything.
+extraResources:
+  - from: sidecar/dist
+    to: sidecar
+    filter:
+      - analyze/**
+      - edit_tags/**
 # Deep link for the OAuth and password-reset callbacks. app.setAsDefault-
 # ProtocolClient registers this at runtime, which is what makes it work in
 # dev, but a PACKAGED app needs the scheme declared in its bundle too:
@@ -33,6 +44,10 @@ nsis:
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always
 mac:
+  # Ad-hoc signature: enough for testers on Apple Silicon (they open it once
+  # with right-click > Open). TODO(release): replace with a Developer ID
+  # Application identity and turn notarize on before any public download.
+  identity: '-'
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:
     - NSCameraUsageDescription: Application requests access to the device's camera.
@@ -41,7 +56,8 @@ mac:
     - NSDownloadsFolderUsageDescription: Application requests access to the user's Downloads folder.
   notarize: false
 dmg:
-  artifactName: ${name}-${version}.${ext}
+  # e.g. DeepCrated-1.0.0-arm64.dmg (productName, not the npm package name).
+  artifactName: ${productName}-${version}-${arch}.${ext}
 linux:
   target:
     - AppImage

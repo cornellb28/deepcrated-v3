@@ -15,9 +15,10 @@ const projectRoot = join(__dirname, '..', '..')
 
 function getPython(binary: 'analyze' | 'edit_tags' = 'analyze'): string {
   if (app.isPackaged) {
-    // Production — bundled binary path (one standalone PyInstaller
-    // executable per script; each one IS the interpreter+script combined)
-    return join(process.resourcesPath, 'sidecar', binary)
+    // Production — bundled PyInstaller build, one folder per script
+    // (sidecar/build.sh, --onedir): <resources>/sidecar/<name>/<name>. The
+    // executable IS the interpreter+script combined.
+    return join(process.resourcesPath, 'sidecar', binary, binary)
   }
 
   // Development — use the virtual environment

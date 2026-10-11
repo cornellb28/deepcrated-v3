@@ -20,3 +20,7 @@ playwright-report
 backups/
 delimiter-dry-run.json
 delimiter-dry-run.csv
+
+# PyInstaller work files from sidecar/build.sh (sidecar/dist is covered by "dist")
+sidecar/build/
+sidecar/*.spec

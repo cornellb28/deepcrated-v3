@@ -29,7 +29,14 @@ fi
 
 rm -rf dist build
 
-"$PYINSTALLER" --onefile --name analyze \
+# --onedir, not --onefile: a one-file build unpacks its ~100 MB of Python
+# and libraries to a temp folder on EVERY run, which measured ~17 s per
+# launch on macOS (0.22 s for the same --fast tag read from the venv). The
+# app spawns these once per file on import, so that made importing
+# unusable. A folder build starts straight away. Output: dist/<name>/<name>
+# plus its _internal/ folder, which electron-builder ships as-is.
+
+"$PYINSTALLER" --onedir --noconfirm --name analyze \
   --collect-all librosa --collect-all numba --collect-all soundfile --collect-all sklearn \
   --distpath dist --workpath build --specpath . \
   analyze.py
@@ -38,9 +45,9 @@ rm -rf dist build
 # a try/except that degrades to HAS_SERATO = False, so a build that misses it
 # still runs and still reports success — it just silently stops writing the
 # Serato Autotags block, which is the whole reason Serato ever sees a BPM.
-"$PYINSTALLER" --onefile --name edit_tags \
+"$PYINSTALLER" --onedir --noconfirm --name edit_tags \
   --collect-all mutagen --collect-all serato_tools \
   --distpath dist --workpath build --specpath . \
   edit_tags.py
 
-echo "Built sidecar/dist/analyze and sidecar/dist/edit_tags"
+echo "Built sidecar/dist/analyze/analyze and sidecar/dist/edit_tags/edit_tags"
