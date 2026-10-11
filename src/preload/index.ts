@@ -192,6 +192,11 @@ const api = {
   // process loaded them. See staleBuild.ts.
   buildStatus: () => ipcRenderer.invoke('app:build-status'),
 
+  // The first library load finished (or failed). Main keeps the launch
+  // screen up until then; see src/main/launchScreen.ts.
+  libraryReady: () => ipcRenderer.invoke('app:library-ready'),
+  libraryLoadFailed: (message: string) => ipcRenderer.invoke('app:library-load-failed', message),
+
   // Opens a web page in the system browser. Main validates the scheme.
   openExternal: (url: string) => ipcRenderer.invoke('shell:open-external', url),
 

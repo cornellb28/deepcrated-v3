@@ -291,7 +291,15 @@ function App(): React.JSX.Element {
       setAllTrackTags(tagsByTrack)
       tagsHydrated.current = true
     }
+    // Launch screen hook: main keeps the launch screen up until this first
+    // load finishes, so a full library never flashes the empty state. A
+    // failure goes to the launch screen's error state instead of nowhere.
     load()
+      .then(() => window.api.libraryReady())
+      .catch((err: unknown) => {
+        console.error('[startup] library load failed:', err)
+        void window.api.libraryLoadFailed(err instanceof Error ? err.message : String(err))
+      })
   }, [])
 
   // ── Artist-name cleanup events ────────────────────────────

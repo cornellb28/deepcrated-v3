@@ -29,8 +29,11 @@ export interface BuildStatus {
 }
 
 // Bundle paths relative to the running main bundle (out/main/index.js).
+// index.js is only the boot entry; the app itself is app.js, loaded after
+// the launch screen (see electron.vite.config.ts), so both count as main.
 const BUNDLES: Record<string, string> = {
   main: join(__dirname, 'index.js'),
+  app: join(__dirname, 'app.js'),
   preload: join(__dirname, '..', 'preload', 'index.js')
 }
 

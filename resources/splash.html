@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>DeepCrated</title>
+    <!-- Static page: no script runs here. The splash preload
+         (src/preload/splash.ts) fills in the status line and version and
+         wires the buttons. -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'unsafe-inline'; img-src 'self'"
+    />
+    <style>
+      /* Values from src/renderer/src/assets/main.css: background 0 0% 7%,
+         foreground 240 10% 94%, muted-foreground 240 5% 45%, brand #7f77dd,
+         danger #d85a30, and the same font stack. */
+      :root {
+        --background: hsl(0 0% 7%);
+        --foreground: hsl(240 10% 94%);
+        --muted: hsl(240 5% 45%);
+        --faint: hsl(240 5% 28%);
+        --track: hsl(240 10% 14%);
+        --brand: #7f77dd;
+        --danger: #d85a30;
+      }
+      * {
+        box-sizing: border-box;
+        margin: 0;
+      }
+      html,
+      body {
+        height: 100%;
+      }
+      body {
+        background: var(--background);
+        color: var(--foreground);
+        font-family: 'DM Sans', system-ui, sans-serif;
+        -webkit-font-smoothing: antialiased;
+        user-select: none;
+        overflow: hidden;
+        /* Frameless window: the whole page drags it. */
+        -webkit-app-region: drag;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      main {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+        padding: 0 32px;
+        animation: fade-in 450ms ease-out both;
+      }
+      .mark {
+        width: 64px;
+        height: 64px;
+        border-radius: 14px;
+        margin-bottom: 18px;
+      }
+      .wordmark {
+        font-size: 22px;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+      }
+      .bar {
+        position: relative;
+        width: 120px;
+        height: 2px;
+        margin: 22px 0 14px;
+        border-radius: 2px;
+        background: var(--track);
+        overflow: hidden;
+      }
+      .bar::after {
+        content: '';
+        position: absolute;
+        inset: 0 auto 0 0;
+        width: 40%;
+        border-radius: 2px;
+        background: var(--brand);
+        animation: glide 2.4s ease-in-out infinite;
+      }
+      .status {
+        min-height: 16px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .version {
+        position: fixed;
+        right: 14px;
+        bottom: 10px;
+        font-size: 10px;
+        color: var(--faint);
+      }
+
+      /* Failure state, switched on by the preload. */
+      .error {
+        display: none;
+        flex-direction: column;
+        align-items: center;
+        gap: 6px;
+        max-width: 340px;
+      }
+      .error-title {
+        font-size: 13px;
+        color: var(--foreground);
+      }
+      .error-detail {
+        font-size: 11px;
+        line-height: 1.5;
+        color: var(--muted);
+        word-break: break-word;
+        max-height: 60px;
+        overflow: auto;
+        user-select: text;
+        -webkit-app-region: no-drag;
+      }
+      .actions {
+        display: flex;
+        gap: 8px;
+        margin-top: 10px;
+      }
+      button {
+        -webkit-app-region: no-drag;
+        font: inherit;
+        font-size: 12px;
+        padding: 5px 14px;
+        border-radius: 6px;
+        cursor: pointer;
+        background: transparent;
+        color: var(--muted);
+        border: 0.5px solid var(--faint);
+      }
+      button.primary {
+        color: #fff;
+        background: var(--brand);
+        border-color: var(--brand);
+      }
+      body.failed .bar,
+      body.failed .status {
+        display: none;
+      }
+      body.failed .error {
+        display: flex;
+      }
+      body.failed .mark {
+        opacity: 0.6;
+      }
+
+      @keyframes fade-in {
+        from {
+          opacity: 0;
+          transform: translateY(4px);
+        }
+        to {
+          opacity: 1;
+          transform: none;
+        }
+      }
+      @keyframes glide {
+        0% {
+          transform: translateX(-100%);
+        }
+        100% {
+          transform: translateX(250%);
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        main {
+          animation: none;
+        }
+        /* A static mark instead of motion: a short, still accent line. */
+        .bar::after {
+          animation: none;
+          left: 30%;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <img class="mark" src="icon.png" alt="" />
+      <div class="wordmark">DeepCrated</div>
+      <div class="bar" aria-hidden="true"></div>
+      <div class="status" id="status" role="status" aria-live="polite">Starting…</div>
+      <div class="error" id="error" role="alert">
+        <div class="error-title" id="error-title">DeepCrated couldn't start</div>
+        <div class="error-detail" id="error-detail"></div>
+        <div class="actions">
+          <button type="button" id="quit">Quit</button>
+          <button type="button" class="primary" id="retry">Retry</button>
+        </div>
+      </div>
+    </main>
+    <div class="version" id="version"></div>
+  </body>
+</html>

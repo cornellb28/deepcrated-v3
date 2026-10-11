@@ -129,6 +129,14 @@ import {
   type SeratoImportTally
 } from './serato/seratoImport'
 import { checkBuildStatus } from './staleBuild'
+import { setDeepLinkHandler, setSecondInstanceHandler } from './bootBridge'
+import {
+  focusLaunchScreen,
+  handOffToMainWindow,
+  markLibraryReady,
+  reportLaunchFailure,
+  reportLaunchStage
+} from './launchScreen'
 import { applyFolderRename, planFolderRename } from './folderRename'
 import { expectMove, cancelExpectation } from './expectedChanges'
 import { buildFilename, type TemplateTrack } from './filenameTemplate'
@@ -1749,6 +1757,9 @@ function createWindow(): void {
     width: 1200,
     height: 1000,
     show: false,
+    // Same as the app's background (main.css --background), so nothing
+    // flashes white before the first paint.
+    backgroundColor: '#121212',
     autoHideMenuBar: true,
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
@@ -1761,9 +1772,14 @@ function createWindow(): void {
     void refreshAccountState()
   })
 
-  win.on('ready-to-show', () => {
-    win.show()
-  })
+  // Launch screen hook: while it is up, it decides when this window shows
+  // (painted AND library loaded). Otherwise — a window re-created later —
+  // show it as soon as it paints, as before.
+  if (!handOffToMainWindow(win)) {
+    win.on('ready-to-show', () => {
+      win.show()
+    })
+  }
 
   win.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url)
@@ -1779,40 +1795,20 @@ function createWindow(): void {
   }
 }
 
-// ── Deep-link registration for the OAuth callback ────────────────────────
-// Must happen before whenReady: on Windows/Linux the second launch that the
-// browser triggers has to be able to hand its URL to the first instance,
-// and that only works if the lock is already held.
-//
-// requestSingleInstanceLock also fixes a real problem beyond auth — two
-// copies of the app would open two better-sqlite3 handles on the same
-// library.db and two chokidar watchers per root.
-const gotSingleInstanceLock = app.requestSingleInstanceLock()
-if (!gotSingleInstanceLock) {
-  app.quit()
-} else {
-  // Windows/Linux deliver the deepcrated:// URL as an argv entry on the
-  // second instance, not as an event — so it has to be dug out of the
-  // command line. macOS uses 'open-url' instead (registered below).
-  app.on('second-instance', (_event, argv) => {
-    const url = argv.find((arg) => CALLBACK_PROTOCOLS.some((s) => arg.startsWith(`${s}://`)))
-    if (url) void handleAuthCallback(url)
-
-    // Whether or not it was a deep link, the DJ just tried to open the app:
-    // surface the window they already have.
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore()
-      mainWindow.focus()
-    }
-  })
-}
-
-// macOS. Registered at module scope, not inside whenReady, because a cold
-// start triggered by clicking the callback link can fire this before the app
-// is ready — handleAuthCallback tolerates a not-yet-existing window.
-app.on('open-url', (event, url) => {
-  event.preventDefault()
-  void handleAuthCallback(url)
+// ── Deep links and second launches ───────────────────────────────────────
+// The single-instance lock and the 'second-instance' / 'open-url' listeners
+// live in boot.ts, which has to register them before Electron is ready —
+// before this file (and the database) is even loaded. They hand over here;
+// a link that arrived while the launch screen was up is delivered now.
+setDeepLinkHandler((url) => void handleAuthCallback(url))
+setSecondInstanceHandler(() => {
+  if (mainWindow && mainWindow.isVisible()) {
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    mainWindow.focus()
+  } else {
+    // Still behind the launch screen: surface that instead.
+    focusLaunchScreen()
+  }
 })
 
 // In dev the executable is Electron itself, so the OS has to be told which
@@ -1850,30 +1846,13 @@ async function handleAuthCallback(url: string): Promise<void> {
   }
 }
 
-protocol.registerSchemesAsPrivileged([
-  {
-    scheme: 'artwork',
-    privileges: {
-      secure: true,
-      supportFetchAPI: true,
-      bypassCSP: true
-    }
-  },
-  {
-    scheme: 'audio',
-    privileges: {
-      standard: true,
-      secure: true,
-      supportFetchAPI: true,
-      bypassCSP: true
-    }
-  }
-])
+// The artwork:// and audio:// schemes are registered as privileged in
+// boot.ts: that has to happen before Electron is ready.
 
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
-app.whenReady().then(() => {
+const appStartup = app.whenReady().then(() => {
   startStatsUploader()
   setArtistCleanSender((channel, payload) => mainWindow?.webContents.send(channel, payload))
   startIdentityBackfill({
@@ -3737,6 +3716,7 @@ app.whenReady().then(() => {
 
   // ── Start watchers for all registered roots ───────────────
 
+  reportLaunchStage('folders') // launch screen hook
   const roots = getAllRoots()
 
   for (const root of roots) {
@@ -3776,6 +3756,19 @@ app.whenReady().then(() => {
     return { ok: true }
   })
 
+  // ── Launch screen hooks ───────────────────────────────────
+  // The renderer's first library load finished (or failed). Only the first
+  // report matters; later ones (a dev reload) are no-ops.
+  ipcMain.handle('app:library-ready', () => {
+    markLibraryReady()
+  })
+  ipcMain.handle('app:library-load-failed', (_e, message: unknown) => {
+    reportLaunchFailure(
+      "DeepCrated couldn't load your library",
+      typeof message === 'string' ? message : 'Unknown error'
+    )
+  })
+
   createWindow()
 
   // One-time, best-effort — do not await; must never delay window creation.
@@ -3812,6 +3805,10 @@ app.whenReady().then(() => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
 })
+
+// Launch screen hook: anything the startup block above throws lands on the
+// launch screen with Retry / Quit instead of an unhandled rejection.
+void appStartup.catch((err) => reportLaunchFailure("DeepCrated couldn't start", err))
 
 app.on('before-quit', async () => {
   stopSessionRefresh()

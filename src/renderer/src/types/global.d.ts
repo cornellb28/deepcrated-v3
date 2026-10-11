@@ -85,6 +85,8 @@ declare global {
       // this Electron process loaded them — the renderer is newer than the
       // code it is talking to, and only a full restart fixes that.
       buildStatus: () => Promise<{ stale: boolean; changed: string[] }>
+      libraryReady: () => Promise<void>
+      libraryLoadFailed: (message: string) => Promise<void>
 
       rescanLibrary: () => Promise<{
         ok: boolean
