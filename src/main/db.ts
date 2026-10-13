@@ -1502,7 +1502,14 @@ export function setTagsForField(trackId: number, field: string, values: string[]
 export function renameTagAndCascade(
   tagId: number,
   newValue: string
-): { renamed: boolean; mergedInto: number | null; tracksUpdated: number } {
+): {
+  renamed: boolean
+  mergedInto: number | null
+  tracksUpdated: number
+  // Every track that carried the tag, for rewriting their files.
+  field: string
+  trackIds: number[]
+} {
   const tag = db.prepare('SELECT id, field, value FROM tags WHERE id = ?').get(tagId) as
     | { id: number; field: string; value: string }
     | undefined
@@ -1510,10 +1517,13 @@ export function renameTagAndCascade(
 
   const normalized = normalizeTagValue(tag.field, newValue)
   if (normalized === '') throw new Error('A tag cannot be renamed to nothing')
-  if (normalized === tag.value) return { renamed: false, mergedInto: null, tracksUpdated: 0 }
+  if (normalized === tag.value) {
+    return { renamed: false, mergedInto: null, tracksUpdated: 0, field: tag.field, trackIds: [] }
+  }
 
   let mergedInto: number | null = null
   let tracksUpdated = 0
+  let trackIds: number[] = []
 
   const run = db.transaction(() => {
     const existing = db
@@ -1526,6 +1536,7 @@ export function renameTagAndCascade(
       .prepare('SELECT DISTINCT track_id FROM track_tags WHERE tag_id = ?')
       .all(tagId)
       .map((r) => (r as { track_id: number }).track_id)
+    trackIds = affected
 
     if (existing) {
       mergedInto = existing.id
@@ -1555,7 +1566,7 @@ export function renameTagAndCascade(
   })
   run()
 
-  return { renamed: true, mergedInto, tracksUpdated }
+  return { renamed: true, mergedInto, tracksUpdated, field: tag.field, trackIds }
 }
 
 // ── Renaming a watched folder (a library root) ────────────────────────────
@@ -1729,13 +1740,16 @@ export function deleteTagAndCascade(tagId: number): {
   field: string
   value: string
   tracksUpdated: number
+  // Every track that carried the tag, for rewriting their files.
+  trackIds: number[]
 } {
   const tag = db.prepare('SELECT id, field, value FROM tags WHERE id = ?').get(tagId) as
     | { id: number; field: string; value: string }
     | undefined
-  if (!tag) return { deleted: false, field: '', value: '', tracksUpdated: 0 }
+  if (!tag) return { deleted: false, field: '', value: '', tracksUpdated: 0, trackIds: [] }
 
   let tracksUpdated = 0
+  let trackIds: number[] = []
 
   const run = db.transaction(() => {
     // Captured BEFORE the delete — afterwards the pivot rows are gone and
@@ -1744,6 +1758,7 @@ export function deleteTagAndCascade(tagId: number): {
       .prepare('SELECT DISTINCT track_id FROM track_tags WHERE tag_id = ?')
       .all(tagId)
       .map((r) => (r as { track_id: number }).track_id)
+    trackIds = affected
 
     db.prepare('DELETE FROM tags WHERE id = ?').run(tagId)
 
@@ -1759,7 +1774,14 @@ export function deleteTagAndCascade(tagId: number): {
   })
   run()
 
-  return { deleted: true, field: tag.field, value: tag.value, tracksUpdated }
+  return { deleted: true, field: tag.field, value: tag.value, tracksUpdated, trackIds }
+}
+
+// The field of one tag (null if there is no such tag). Read-only.
+export function getTagField(tagId: number): string | null {
+  const row = db.prepare('SELECT field FROM tags WHERE id = ?').get(tagId) as
+    { field: string } | undefined
+  return row?.field ?? null
 }
 
 export function getTrackTags(trackId: number): Tag[] {

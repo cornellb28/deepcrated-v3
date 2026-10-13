@@ -53,6 +53,7 @@ import {
   removeRoot,
   applyTag,
   removeTag,
+  getTagField,
   getTrackTags,
   getTrackTagsForTracks,
   getTagTracks,
@@ -135,6 +136,14 @@ import {
 } from './serato/seratoImport'
 import { checkBuildStatus } from './staleBuild'
 import { readThirdPartyNotices } from './licenses'
+import {
+  composeWriteMeta,
+  isGroupingExtraField,
+  planFileTagSync,
+  scheduleGroupingWrite,
+  writeItemsForField,
+  writeItemsForSync
+} from './fileTagSync'
 import { setDeepLinkHandler, setSecondInstanceHandler } from './bootBridge'
 import {
   focusLaunchScreen,
@@ -2627,20 +2636,54 @@ const appStartup = app.whenReady().then(() => {
   ipcMain.handle(
     'sidecar:edit-tags-batch',
     (event, items: EditTagsBatchItem[], options?: { writeSerato?: boolean }) => {
-      const job: EditTagsJob = {
-        type: 'editTags',
-        id: randomUUID(),
-        total: items.length,
-        doneCount: 0,
-        currentFile: '',
-        status: 'running',
-        failed: []
-      }
-      jobs.set(job.id, job)
-      runEditTagsJob(event, job, items, options?.writeSerato ?? true) // fire-and-forget — progress goes out over edit-tags:progress
-      return { jobId: job.id }
+      const composed = items.map((item) => ({
+        ...item,
+        meta: composeWriteMeta(item.filepath, item.meta as Record<string, unknown>)
+      }))
+      return { jobId: startEditTagsJob(event, composed, options?.writeSerato ?? true) }
     }
   )
+
+  // Starts a background tag-write job; progress goes out over
+  // edit-tags:progress, same as a bulk edit.
+  function startEditTagsJob(
+    event: Electron.IpcMainInvokeEvent,
+    items: EditTagsBatchItem[],
+    writeSerato: boolean
+  ): string {
+    const job: EditTagsJob = {
+      type: 'editTags',
+      id: randomUUID(),
+      total: items.length,
+      doneCount: 0,
+      currentFile: '',
+      status: 'running',
+      failed: []
+    }
+    jobs.set(job.id, job)
+    void runEditTagsJob(event, job, items, writeSerato)
+    return job.id
+  }
+
+  // ── Tags in your files (Settings > Serato) ────────────────
+  // Reads every file the way Serato does and lists where it is out of step
+  // with DeepCrated; nothing is written until the DJ approves.
+  ipcMain.handle('tags:file-sync-plan', async () => {
+    try {
+      return { ok: true, plan: await planFileTagSync() }
+    } catch (err) {
+      return { ok: false, error: (err as Error).message }
+    }
+  })
+
+  ipcMain.handle('tags:file-sync-write', (event, trackIds: unknown) => {
+    if (!Array.isArray(trackIds) || !trackIds.every((id) => typeof id === 'number')) {
+      return { ok: false, error: 'Invalid track list' }
+    }
+    const items = writeItemsForSync(trackIds as number[])
+    if (items.length === 0) return { ok: true, files: 0 }
+    return { ok: true, files: items.length, jobId: startEditTagsJob(event, items, false) }
+  })
 
   // ── Move files to a folder (job-based — see MoveJob/runMoveJob above) ──
 
@@ -2785,7 +2828,9 @@ const appStartup = app.whenReady().then(() => {
     'sidecar:write-tags',
     async (_e, filepath: string, meta: Record<string, unknown>) => {
       try {
-        const results = await writeTagsForFile(filepath, meta)
+        // Grouping carries vibe/venue/custom (and label/remixer on m4a/wav)
+        // for Serato — see fileTags.ts.
+        const results = await writeTagsForFile(filepath, composeWriteMeta(filepath, meta))
         return { ok: true, results }
       } catch (err) {
         return { ok: false, error: (err as Error).message }
@@ -3165,17 +3210,26 @@ const appStartup = app.whenReady().then(() => {
   // into an existing tag of the same field if the new value collides.
   // Removes a tag from the library entirely and re-derives every track that
   // carried it. Distinct from tags:remove, which only unlinks ONE track.
-  ipcMain.handle('tags:delete', (_e, tagId: number) => {
+  // Both used to change the database only, so Serato never saw a rename or
+  // a delete. Every file that carried the tag is now rewritten for that
+  // field, in the background (filesQueued tells the renderer how many).
+  ipcMain.handle('tags:delete', (event, tagId: number) => {
     try {
-      return { ok: true, ...deleteTagAndCascade(tagId) }
+      const result = deleteTagAndCascade(tagId)
+      const items = writeItemsForField(result.trackIds, result.field)
+      if (items.length > 0) startEditTagsJob(event, items, false)
+      return { ok: true, ...result, filesQueued: items.length }
     } catch (err) {
       return { ok: false, error: (err as Error).message }
     }
   })
 
-  ipcMain.handle('tags:rename', (_e, tagId: number, newValue: string) => {
+  ipcMain.handle('tags:rename', (event, tagId: number, newValue: string) => {
     try {
-      return { ok: true, ...renameTagAndCascade(tagId, newValue) }
+      const result = renameTagAndCascade(tagId, newValue)
+      const items = writeItemsForField(result.trackIds, result.field)
+      if (items.length > 0) startEditTagsJob(event, items, false)
+      return { ok: true, ...result, filesQueued: items.length }
     } catch (err) {
       return { ok: false, error: (err as Error).message }
     }
@@ -3193,6 +3247,10 @@ const appStartup = app.whenReady().then(() => {
   ipcMain.handle('tags:apply', (_e, trackId: number, tagId: number) => {
     try {
       applyTag(trackId, tagId)
+      // vibe/venue/custom have no frame of their own: they live in the
+      // file's Grouping, so it is rewritten (debounced) — see fileTags.ts.
+      const field = getTagField(tagId)
+      if (field && isGroupingExtraField(field)) scheduleGroupingWrite(trackId)
       return { ok: true }
     } catch (err) {
       return { ok: false, error: (err as Error).message }
@@ -3201,7 +3259,9 @@ const appStartup = app.whenReady().then(() => {
 
   ipcMain.handle('tags:remove', (_e, trackId: number, tagId: number) => {
     try {
+      const field = getTagField(tagId)
       removeTag(trackId, tagId)
+      if (field && isGroupingExtraField(field)) scheduleGroupingWrite(trackId)
       return { ok: true }
     } catch (err) {
       return { ok: false, error: (err as Error).message }

@@ -9,6 +9,7 @@ import { SeratoImportConfirmDialog } from '@renderer/components/SeratoImportConf
 import { StatsConsentSwitch } from '../components/StatsConsentSwitch'
 import { IdentityLookupSwitch } from '../components/IdentityLookupSwitch'
 import { FingerprintStatus } from '../components/FingerprintStatus'
+import { FileTagSync } from '../components/FileTagSync'
 import { OpenSourceNotices } from '../components/OpenSourceNotices'
 import { ArtistCleanSettings } from '../components/ArtistCleanSettings'
 import { useLibraryStore } from '../store/useLibraryStore'
@@ -589,6 +590,13 @@ export function SettingsView({
 
           {/* ── Serato ──────────────────────────────────────────────── */}
           <TabsContent value="serato">
+            <Section
+              title="Tags in your files"
+              description="Serato shows only what is in the audio file. Check lists the files whose tags differ from DeepCrated, read the way Serato reads them, and writes the ones you approve. Vibe, venue and custom tags — and label and remixer on M4A and WAV, which Serato does not read — go into Grouping."
+            >
+              <FileTagSync />
+            </Section>
+
             <Section
               title="Serato library"
               description="Where .crate files are written. Leave it on the default unless your Serato library lives somewhere unusual."

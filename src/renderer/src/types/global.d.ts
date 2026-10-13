@@ -237,6 +237,8 @@ declare global {
           field?: string
           value?: string
           tracksUpdated?: number
+          // Files being rewritten in the background for this change.
+          filesQueued?: number
           error?: string
         }>
         // Renames a tag everywhere and re-derives every track carrying it.
@@ -249,8 +251,13 @@ declare global {
           renamed?: boolean
           mergedInto?: number | null
           tracksUpdated?: number
+          filesQueued?: number
           error?: string
         }>
+        fileSyncPlan: () => Promise<{ ok: boolean; plan?: FileTagSyncPlan; error?: string }>
+        fileSyncWrite: (
+          trackIds: number[]
+        ) => Promise<{ ok: boolean; files?: number; jobId?: string; error?: string }>
         remove: (trackId: number, tagId: number) => Promise<{ ok: boolean; error?: string }>
         checkCandidates: (candidates: string[], field: string) => Promise<TagCandidate[]>
         confirmImport: (
@@ -499,6 +506,20 @@ declare global {
   // Why a track is in the duplicates queue. 'canonical' = probably the same
   // recording (shared ISRC, MusicBrainz recording id or audio fingerprint).
   type DuplicateSignal = 'name' | 'size' | 'canonical'
+
+  // Settings > Serato > Tags in your files (main/fileTagSync.ts).
+  interface FileTagSyncPlan {
+    checked: number
+    unreadable: number
+    tracks: {
+      trackId: number
+      title: string
+      filepath: string
+      differences: { field: string; inFile: string; deepcrated: string }[]
+    }[]
+    byField: Record<string, number>
+    fileOnly: number
+  }
 
   interface HealthSummary {
     liveTracks: number

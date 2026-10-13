@@ -339,6 +339,10 @@ const api = {
     // Removes the tag from the library entirely, re-deriving every track
     // that carried it. `remove` above only unlinks one track.
     delete: (tagId: number) => ipcRenderer.invoke('tags:delete', tagId),
+    // Settings > Serato > Tags in your files: check every file against
+    // DeepCrated (read-only), then write the ones the DJ approves.
+    fileSyncPlan: () => ipcRenderer.invoke('tags:file-sync-plan'),
+    fileSyncWrite: (trackIds: number[]) => ipcRenderer.invoke('tags:file-sync-write', trackIds),
     remove: (trackId: number, tagId: number) => ipcRenderer.invoke('tags:remove', trackId, tagId),
     checkCandidates: (candidates: string[], field: string) =>
       ipcRenderer.invoke('tags:check-candidates', candidates, field),

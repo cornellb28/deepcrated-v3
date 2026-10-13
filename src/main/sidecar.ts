@@ -260,6 +260,58 @@ export function readIdentityTags(filepaths: string[]): Promise<IdentityTagLine[]
   })
 }
 
+// ─── Tags as Serato sees them (bulk) ─────────────────────
+// One sidecar process for a whole list of files, like readIdentityTags: the
+// exact frames/atoms Serato shows per column (see serato_visible_tags in
+// analyze.py), for the "Tags in your files" check.
+
+export interface SeratoTagLine {
+  filepath: string
+  ok: boolean
+  tags: Record<string, string> | null
+  error?: string
+}
+
+// A whole library in one process; generous, and only bounds a hang.
+const SERATO_TAGS_BATCH_TIMEOUT_MS = 10 * 60 * 1000
+
+export function readSeratoVisibleTags(filepaths: string[]): Promise<SeratoTagLine[]> {
+  return new Promise((resolve, reject) => {
+    const python = getPython()
+    const args = app.isPackaged
+      ? ['--serato-tags-batch']
+      : [getSidecarPath(), '--serato-tags-batch']
+    const child = spawn(python, args, {
+      stdio: ['pipe', 'pipe', 'ignore'],
+      env: { ...process.env, PYTHONIOENCODING: 'utf-8' }
+    })
+    let stdout = ''
+    const timer = setTimeout(() => child.kill(), SERATO_TAGS_BATCH_TIMEOUT_MS)
+    child.stdout.on('data', (chunk) => {
+      stdout += chunk.toString()
+    })
+    child.on('error', (err) => {
+      clearTimeout(timer)
+      reject(new Error(`Failed to start sidecar: ${err.message}`))
+    })
+    child.on('close', () => {
+      clearTimeout(timer)
+      const lines: SeratoTagLine[] = []
+      for (const line of stdout.split('\n')) {
+        if (!line.trim()) continue
+        try {
+          lines.push(JSON.parse(line) as SeratoTagLine)
+        } catch {
+          // A garbled line leaves that one file out of the check.
+        }
+      }
+      resolve(lines)
+    })
+    child.stdin.on('error', () => {})
+    child.stdin.end(filepaths.join('\n') + '\n')
+  })
+}
+
 // ─── Type for the result ──────────────────────────────────
 
 export interface AnalysisResult {

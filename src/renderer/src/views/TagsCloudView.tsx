@@ -21,6 +21,24 @@ interface TagsCloudViewProps {
   onTagSelect: (tag: Tag) => void
 }
 
+
+// The toast line after a rename/delete: how many tracks changed, and that
+// their files are being rewritten — which Serato only shows after a rescan.
+function filesNote(
+  tracksUpdated: number | undefined,
+  filesQueued: number | undefined,
+  verb = 'Updated'
+): string | undefined {
+  const parts: string[] = []
+  if (tracksUpdated) parts.push(`${verb} ${tracksUpdated} track${tracksUpdated === 1 ? '' : 's'}.`)
+  if (filesQueued) {
+    parts.push(
+      `Writing ${filesQueued} file${filesQueued === 1 ? '' : 's'}; in Serato, use Rescan ID3 Tags to see it.`
+    )
+  }
+  return parts.length > 0 ? parts.join(' ') : undefined
+}
+
 export function TagsCloudView({ onTagSelect }: TagsCloudViewProps): React.JSX.Element {
   const { tags } = useLibraryStore()
 
@@ -73,11 +91,7 @@ export function TagsCloudView({ onTagSelect }: TagsCloudViewProps): React.JSX.El
       result.mergedInto
         ? `Merged into “${newValue}”`
         : `Renamed to “${newValue}”`,
-      {
-        description: result.tracksUpdated
-          ? `${result.tracksUpdated} track${result.tracksUpdated === 1 ? '' : 's'} updated.`
-          : undefined
-      }
+      { description: filesNote(result.tracksUpdated, result.filesQueued) }
     )
     setEditing(null)
   }
@@ -91,9 +105,7 @@ export function TagsCloudView({ onTagSelect }: TagsCloudViewProps): React.JSX.El
     }
     await refreshAfterChange()
     toast.success(`Deleted “${editing.tag.value}”`, {
-      description: result.tracksUpdated
-        ? `Removed from ${result.tracksUpdated} track${result.tracksUpdated === 1 ? '' : 's'}.`
-        : undefined
+      description: filesNote(result.tracksUpdated, result.filesQueued, 'Removed from')
     })
     setEditing(null)
   }
