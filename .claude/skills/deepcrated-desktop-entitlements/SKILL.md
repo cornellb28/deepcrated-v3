@@ -1,11 +1,11 @@
 ---
 name: deepcrated-desktop-entitlements
-description: Reading plan and subscription state in the DeepCrated desktop app (deepcrated-v3), caching it offline, and the locked/upgrade UI for cloud sync and mobile. Use whenever work touches entitlements, plan or subscription status, the Settings Plan page, LockedView, LockBadge, upgrade prompts, or offline behavior tied to accounts, even if the user just says "the plan screen" or "locked features". Read deepcrate-account-contract first.
+description: Reading plan and subscription state in the DeepCrate desktop app (deepcrated-v3), caching it offline, and the locked/upgrade UI for cloud sync and mobile. Use whenever work touches entitlements, plan or subscription status, the Settings Plan page, LockedView, LockBadge, upgrade prompts, or offline behavior tied to accounts, even if the user just says "the plan screen" or "locked features". Read deepcrated-account-contract first.
 ---
 
 # Desktop entitlements (deepcrated-v3)
 
-Read `deepcrate-account-contract` first. The desktop app only **reads** entitlements; it never writes them.
+Read `deepcrated-account-contract` first. The desktop app only **reads** entitlements; it never writes them.
 
 - Read the signed-in user's own row from Supabase (RLS scopes it). Refresh on sign-in, app focus, and after a deep-link return.
 - Cache the last known entitlement locally so the **local-first app opens offline**. The trust window is an open decision: leave a marked TODO, don't invent a number.

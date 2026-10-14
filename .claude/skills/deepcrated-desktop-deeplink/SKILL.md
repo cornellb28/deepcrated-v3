@@ -1,11 +1,11 @@
 ---
 name: deepcrated-desktop-deeplink
-description: Custom protocol handler and the sign-in handoff from the website into the DeepCrated desktop app (deepcrated-v3, Electron). Use whenever work touches the protocol scheme, open-url, second-instance, single-instance lock, auth callback links, the one-time key and verifier exchange, redeeming a sign-in, or the checkout/login redirect back into the app, even if the user just says "redirect back to the app". Read deepcrate-account-contract first.
+description: Custom protocol handler and the sign-in handoff from the website into the DeepCrate desktop app (deepcrated-v3, Electron). Use whenever work touches the protocol scheme, open-url, second-instance, single-instance lock, auth callback links, the one-time key and verifier exchange, redeeming a sign-in, or the checkout/login redirect back into the app, even if the user just says "redirect back to the app". Read deepcrated-account-contract first.
 ---
 
 # Desktop deep link and sign-in handoff (deepcrated-v3)
 
-Read `deepcrate-account-contract` (v3) first. The existing handler already covers the scheme (`deepcrated`), macOS `open-url`, Windows/Linux `second-instance`, and the single-instance lock. The scheme was renamed from `cratecloud` to `deepcrated`; the app still registers and accepts the old `cratecloud` scheme until the website builds `deepcrated://` links and the Supabase redirect allowlist has `deepcrated://auth-callback` (see TODO(deepcrated) in `src/main/authCallback.ts`). Do not rename it again.
+Read `deepcrated-account-contract` (v3) first. The existing handler already covers the scheme (`deepcrated`), macOS `open-url`, Windows/Linux `second-instance`, and the single-instance lock. Keep the scheme; renaming it breaks installed apps and is a separate decision.
 
 ## Starting a sign-in (main process)
 - Generate `verifier` (32 random bytes, base64url), `challenge` = base64url(SHA-256(verifier)), and `state` (32 random bytes, base64url) with Node `crypto`.
@@ -14,7 +14,7 @@ Read `deepcrate-account-contract` (v3) first. The existing handler already cover
 - Cancel clears the pending flow. A pending flow expires after about 10 minutes.
 
 ## Handling the callback
-- Accept only `deepcrated://auth-callback?key=...&state=...` (or the legacy `cratecloud://` form during the transition). Check the scheme **and** the authority exactly.
+- Accept only `cratecloud://auth-callback?key=...&state=...`. Check the scheme **and** the authority exactly.
 - Reject anything else: other authorities, fragments, `access_token`, `refresh_token`, or `code` params. Log a generic warning with no values.
 - Ignore the link if there is no pending flow, it is expired, or `state` does not match (constant-time compare). Clear the pending flow on first valid use.
 - Redeem: POST `{ key, verifier }` as JSON to the configured redeem URL. HTTPS only (plain http only for localhost in development), with a timeout. A success returns `{ access_token, refresh_token }`.

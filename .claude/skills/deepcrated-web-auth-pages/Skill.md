@@ -1,11 +1,11 @@
 ---
 name: deepcrated-web-auth-pages
-description: Login and signup pages, Supabase redirect allowlists, and the handoff back to the desktop app on the DeepCrated website (deepcrate-web). Use whenever work touches the website's sign-in or sign-up UI, Google OAuth on the web, Supabase redirect URLs, or why login "does nothing", even if the user just says "login page". Read deepcrate-account-contract first.
+description: Login and signup pages, Supabase redirect allowlists, and the handoff back to the desktop app on the DeepCrate website (deepcrated-web). Use whenever work touches the website's sign-in or sign-up UI, Google OAuth on the web, Supabase redirect URLs, or why login "does nothing", even if the user just says "login page". Read deepcrated-account-contract first.
 ---
 
-# Web auth pages (deepcrate-web)
+# Web auth pages (deepcrated-web)
 
-Read `deepcrate-account-contract` first. Inspect the existing framework and auth code before changing anything.
+Read `deepcrated-account-contract` first. Inspect the existing framework and auth code before changing anything.
 
 - Email/password and Google OAuth against the **same** Supabase project the desktop app uses.
 - Every redirect URL (site URLs and the desktop deep link) must be on the Supabase allowlist. A missing entry is the first thing to check when login does nothing.
