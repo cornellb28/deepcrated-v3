@@ -15,6 +15,10 @@ playwright-report
 .env
 .env.*
 !.env.example
+# Release publishing credentials (scripts/publish-release.mjs). Already
+# covered by .env.* above; listed by name so it can never be un-ignored by
+# accident. The script refuses to run if this stops being ignored.
+.env.release
 
 # Delimiter write-back: backups and dry-run reports
 backups/
