@@ -15,14 +15,9 @@
 
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 
-// The scheme the app registers and the website should emit.
+// A scheme the app registers and accepts; contract v4.2 names it as mobile's (desktop's is cratecloud, below).
 export const CALLBACK_PROTOCOL = 'deepcrated'
-// The scheme this app used before the rename. Still registered and accepted so
-// sign-in keeps working while deepcrate-web and the Supabase redirect allowlist
-// still emit it.
-// TODO(deepcrated): drop this once the website builds deepcrated:// links and
-// the allowlist has deepcrated://auth-callback; then remove it from
-// CALLBACK_PROTOCOLS, electron-builder.yml `protocols`, and the legacy tests.
+// The cratecloud scheme is the desktop scheme per account contract v4.2 (mobile uses deepcrated://); kept so installed apps keep working.
 export const LEGACY_CALLBACK_PROTOCOL = 'cratecloud'
 export const CALLBACK_PROTOCOLS: readonly string[] = [CALLBACK_PROTOCOL, LEGACY_CALLBACK_PROTOCOL]
 export const CALLBACK_URL = `${CALLBACK_PROTOCOL}://auth-callback`

@@ -46,8 +46,8 @@ protocols:
   - name: DeepCrated
     schemes:
       - deepcrated
-      # TODO(deepcrated): legacy scheme, kept until the website and the
-      # Supabase allowlist use deepcrated:// — see authCallback.ts.
+      # Registered too and accepted at runtime (CALLBACK_PROTOCOLS in authCallback.ts).
+      # Contract v4.2 names cratecloud as the desktop scheme; installed apps rely on it.
       - cratecloud
 win:
   executableName: deepcrated-v3

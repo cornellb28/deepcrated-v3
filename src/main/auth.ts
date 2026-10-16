@@ -73,8 +73,8 @@ const AUTH_URLS: Record<AuthDestination, string | undefined> = {
 
 // TODO(auth-handoff): Verify the full round trip against the real website
 // endpoints (create + redeem) on a PACKAGED build, for email and Google.
-// The scheme is deepcrated://; cratecloud:// is still accepted until the website
-// and Supabase allowlist are switched — see TODO(deepcrated) in authCallback.ts.
+// Both deepcrated:// and cratecloud:// are registered and accepted (CALLBACK_PROTOCOLS
+// in authCallback.ts). Contract v4.2 names cratecloud as the desktop scheme.
 
 let currentSession: Session | null = null
 let currentEntitlement: Entitlement | null = null

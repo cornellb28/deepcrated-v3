@@ -1,171 +1,94 @@
-# DeepCrate Pain Point Library
-
-Single source of truth for DeepCrate marketing. Every hook, ad, landing page and email is built from an entry here. Entry layout and field guidance: `references/entry-template.md`.
-
-**How to read the status and evidence lines.** Status is what the product does today. Copy may only promise what the status supports. Evidence is how well the pain is proven. These seed entries are starting hypotheses written from the product strategy, not research findings. No statistics, testimonials or user counts exist here yet, and none should be added without a source.
-
-**Seed notice.** Statuses marked "confirm" need the founder to verify before any copy ships.
-
+---
+name: "deepcrated-pain-point-library"
+description: Maintain and use the DeepCrated Pain Point Library, the single source of truth that links every DeepCrated feature to the DJ problem it solves, the hidden pain, emotional trigger, consequence, desired outcome, marketing angle, hook, ad and CTA, plus the evidence behind each. Use this skill whenever the user asks for DeepCrated marketing of any kind (ads, hooks, TikTok/Reels scripts, landing page copy, App Store copy, emails, launch announcements, content calendars, personas, A/B tests), whenever a new DeepCrated feature ships or is being designed and needs positioning, whenever someone asks "what pain does this feature solve" or "what should we say about X", and whenever customer research or ad results need to be logged against a feature. Trigger even if the user never says "pain point library" or "skill".
 ---
 
-## DC-001 Library Health
-**Status:** confirm
-**Primary audience(s):** Working DJs, Professional DJs
-**Evidence level:** Hypothesis
-**Last updated:** 2026-10-08
+# DeepCrated Pain Point Library
 
-- **Feature:** Scans the library and surfaces problems: missing, duplicated, corrupted or inconsistently tagged tracks.
-- **DJ problem:** You don't find out what's wrong with your library until you need a track and it isn't there.
-- **Hidden pain:** Being caught unprepared in front of a room. The problem is rarely the file; it's the moment it fails.
-- **Emotional trigger:** Confidence, Preparation.
-- **Consequence:** A missing or broken track mid-set, or hours of last-minute checking before every gig.
-- **Desired outcome:** "I know my library is ready before I leave the house."
-- **Marketing angle:** Fear of the surprise at the gig, backed by confidence. Backup angles: time (stop prepping at the last minute), control.
-- **Hooks:**
-  - [untested] Your library shouldn't surprise you at the gig.
-  - [untested] Find the broken track tonight, not mid-set.
-  - [untested] Stop preparing your library at the last minute.
-- **Ad:** *Your library shouldn't surprise you at the gig.* You've spent years building it. Know what's missing, duplicated or broken before you load the car, not when the floor is waiting.
-- **CTA:** Check your library before your next gig.
-- **Evidence:** None yet.
-- **Research to run:** How often do DJs hit a missing or broken track at a gig? What do they check before leaving the house? Capture a real health report screenshot as product proof.
+This skill keeps one living document, the Pain Point Library, that every piece of DeepCrated marketing is built from. The point of a single source of truth is consistency: if an ad, a landing page and an email all come from the same library entry, they tell the same story and make only claims the product and the evidence can support.
 
----
+DeepCrated is the archive, organization system, preparation environment and intelligence layer for a DJ's music collection. It is not another DJ playback app and it is not a streaming service. The larger idea behind every entry: **DJs aren't just playing music, they're building a music collection**, and DeepCrated preserves and activates that collection.
 
-## DC-002 Cross-device library (desktop + cloud + mobile)
-**Status:** in build (cloud sync not yet implemented)
-**Primary audience(s):** Working DJs, Professional DJs, Veteran DJs
-**Evidence level:** Likely
-**Last updated:** 2026-10-08
+## The chain every entry follows
 
-- **Feature:** Your library and its metadata stay in sync between the desktop app, the cloud and mobile, with the DJ's own files remaining theirs.
-- **DJ problem:** Your collection is trapped behind one computer. Away from it you can't search, check or fix anything.
-- **Hidden pain:** Not knowing whether what's on your laptop is what you think it is, and no way to find out from where you are.
-- **Emotional trigger:** Freedom, Confidence, Control.
-- **Consequence:** Last-minute drive swaps, unanswered "do I own this?" questions, and prep that only happens at your desk.
-- **Desired outcome:** Open your collection anywhere and trust that it's current.
-- **Marketing angle:** Freedom: your library shouldn't be trapped behind your computer. Backup: confidence before a gig.
-- **Hooks:**
-  - [untested] Your music library shouldn't be trapped behind your computer.
-  - [untested] Is everything synced? Stop wondering.
-- **Ad:** *Your library shouldn't be trapped behind your computer.* Search it, check it and prepare from your phone. It's still your collection, not a streaming catalog.
-- **CTA:** Join the waitlist (do not imply it is available until sync ships).
-- **Evidence:** None yet.
-- **Research to run:** Where and when do DJs wish they could reach their library? What do they do today when they're away from the computer?
-- **Guardrail:** Never imply streaming. Do not run as a "live" feature until sync ships.
+```
+Feature → DJ problem → hidden pain → emotional trigger → consequence
+→ desired outcome → marketing angle → hook → ad → CTA → evidence
+```
 
----
+Marketing starts from the DJ's problem, never from the feature. A DJ doesn't fall in love with a feature; they recognize themselves in a problem. The test for any piece of copy is whether a DJ reads it and thinks "that's me, I have that exact problem."
 
-## DC-003 Mobile tag editing
-**Status:** designed
-**Primary audience(s):** Working DJs, Bedroom DJs
-**Evidence level:** Hypothesis
-**Last updated:** 2026-10-08
+## Where the library lives
 
-- **Feature:** Edit tags (artists, genre, key and so on) from your phone and have the changes reach your library.
-- **DJ problem:** You notice a wrong tag or want to rate a track the moment you hear it, but the fix waits until you're back at your computer, and by then you've forgotten.
-- **Hidden pain:** Good judgments about your music get lost because there's nowhere to put them in the moment.
-- **Emotional trigger:** Freedom, Identity.
-- **Consequence:** Metadata debt piles up, and the library drifts from how you actually think about music.
-- **Desired outcome:** My library reflects how I think about music, captured when the thought happens.
-- **Marketing angle:** Frustration with tag debt; backup: identity (your library, your taste).
-- **Hooks:**
-  - [untested] Fix the tag when you hear it, not three weeks later.
-  - [untested] Your library should reflect how you think about music.
-- **Ad:** *Fix the tag when you hear it.* Rate it, correct it, file it, from wherever you are. Your library catches up with your ears.
-- **CTA:** Join the waitlist.
-- **Evidence:** None yet.
-- **Research to run:** Do DJs want to edit tags on a phone, or only view? How do they capture "fix this later" today?
+The canonical library is a markdown file the user keeps, `deepcrated-pain-point-library.md`, in their working folder or repo. This skill bundles a starter copy at `references/seed-library.md`.
 
----
+- If `deepcrated-pain-point-library.md` already exists in the working folder, read it and treat it as the truth. Never replace it with the seed.
+- If it doesn't exist, copy the seed into the working folder under that name before doing anything else, then work from the copy.
+- Edit entries in place and keep prior hooks and ads that were tested, marked with their results, rather than deleting them. Test history is part of the value.
 
-## DC-004 Remove from cloud (explicit, permanent)
-**Status:** designed
-**Primary audience(s):** Working DJs, Professional DJs, Collectors
-**Evidence level:** Hypothesis
-**Last updated:** 2026-10-08
+Read `references/entry-template.md` for the exact fields and what a strong answer looks like in each one. Read `references/audiences-and-territories.md` when choosing audiences, emotional territories or angles.
 
-- **Feature:** Two separate actions: remove a track from this device only, or permanently delete it from the cloud and all connected devices. The cloud option shows a clear permanent-deletion warning and says the files on this computer are not deleted.
-- **DJ problem:** DJs hesitate to trust any sync system because they can't tell what a delete will actually do.
-- **Hidden pain:** Fear that one wrong click wipes years of work everywhere.
-- **Emotional trigger:** Control, Preservation.
-- **Consequence:** Distrust of sync, or hoarding junk because deleting feels risky.
-- **Desired outcome:** I know exactly what happens before I confirm.
-- **Marketing angle:** Trust through clarity. Use as proof inside sync campaigns rather than as a standalone ad.
-- **Hooks:**
-  - [untested] Delete from this device. Delete from the cloud. Never confuse the two.
-  - [untested] You decide what leaves, and we tell you exactly what that means.
-- **Ad:** Not a standalone ad. Use as a trust section on the sync landing page.
-- **CTA:** See how DeepCrate handles deletes.
-- **Evidence:** None yet.
-- **Research to run:** What do DJs fear most about cloud libraries? Test the dialog wording with real users.
-- **Guardrail:** Copy must be matter-of-fact about permanence. Never make deletion sound casual.
+## Workflows
 
----
+Pick the one that matches the request. Several can chain (for example, add an entry, then generate ads from it).
 
-## DC-005 Metadata cleanup and consistent artist tags
-**Status:** confirm
-**Primary audience(s):** Veteran DJs, Collectors, Working DJs
-**Evidence level:** Likely
-**Last updated:** 2026-10-08
+### 1. Add or revise an entry for a feature
 
-- **Feature:** Normalizes metadata so multi-artist tracks, genres and tags are consistent across the library, with the artist order preserved.
-- **DJ problem:** The same artist appears five ways, collaborations are split inconsistently, and search misses tracks you know are there.
-- **Hidden pain:** "My library doesn't reflect how I actually think about music."
-- **Emotional trigger:** Control, Freedom.
-- **Consequence:** Searches fail, crates fill with duplicates, and cleanup becomes a never-ending chore.
-- **Desired outcome:** I search once and find it.
-- **Marketing angle:** Frustration and time: you've spent hours fixing tags that should have been right.
-- **Hooks:**
-  - [untested] Your music isn't disorganized. Your system is.
-  - [untested] How many hours have you spent fixing tags instead of playing music?
-- **Ad:** *Your music isn't disorganized. Your system is.* One artist, one spelling, one order. Find the track you know you own.
-- **CTA:** Clean up your library.
-- **Evidence:** None yet.
-- **Research to run:** Which metadata problems cost DJs the most time? How many hours per week do they spend?
+Use when a feature is new, changed, or has no entry yet.
 
----
+1. Establish what the feature actually does today and its status (shipped, in build, designed, idea). Ask the user if unclear. Copy must never promise what the product doesn't do yet.
+2. Pick the audience segment(s) it matters most to. Different DJs feel different pain, so one entry can carry segment-specific variants of the problem and hook.
+3. Work through the chain in order, writing each field in the template. The early fields (problem, hidden pain, consequence) are where most weak entries fail, so spend time there. Be specific: "you've spent 15 years building your library but still search three drives and two DJ programs for a track you know you own" beats "managing music is hard."
+4. Assign evidence honestly (see Evidence rules) and list the research that would upgrade it.
+5. Add the entry to the library file and show the user the finished entry.
 
-## DC-006 Forgotten music discovery
-**Status:** confirm
-**Primary audience(s):** Bedroom DJs, Veteran DJs
-**Evidence level:** Likely
-**Last updated:** 2026-10-08
+### 2. Generate marketing from the library
 
-- **Feature:** Surfaces tracks the DJ owns but rarely or never plays, so a large collection becomes discoverable.
-- **DJ problem:** You keep buying music while great tracks you already own sit unplayed.
-- **Hidden pain:** Money and taste are going to waste, and you can't see your own collection clearly.
-- **Emotional trigger:** Discovery, Legacy.
-- **Consequence:** Wasted purchases and sets that lean on the same safe tracks.
-- **Desired outcome:** Rediscover the music I already own.
-- **Marketing angle:** Discovery; backup: money (stop re-buying what you have).
-- **Hooks:**
-  - [untested] You don't need more music. You need to rediscover the music you already own.
-  - [untested] The track you're looking for might already be on your hard drive.
-- **Ad:** *You don't need more music.* Somewhere in your collection is the track that fixes your next set. Go find it.
-- **CTA:** See what's hiding in your library.
-- **Evidence:** None yet.
-- **Research to run:** How often do DJs find tracks they forgot they owned? Have they re-bought music?
+Use when the user wants ads, hooks, scripts, copy, emails and similar.
 
----
+1. Find the entry (or entries) in the library. If none covers the request, run workflow 1 first so the copy has a foundation.
+2. State the audience, pain and angle you are using in a line or two, so the user can redirect early.
+3. Write the requested format. Produce variations across different emotional angles (time, money, fear, frustration, confidence, discovery, identity, legacy, convenience), then say which angle you expect to resonate most and why.
+4. Give 2 to 5 variations framed as an A/B test, with what is being tested and what result would count as a win.
+5. Check every claim in the copy against the entry's status and evidence. Remove or soften anything that isn't supported.
+6. If the new hooks or ads are worth keeping, add them to the entry marked "untested".
 
-## DC-007 AI music librarian
-**Status:** idea (describe only as planned)
-**Primary audience(s):** Professional DJs, Veteran DJs, Collectors
-**Evidence level:** Hypothesis
-**Last updated:** 2026-10-08
+### 3. Log evidence or results
 
-- **Feature:** An assistant that understands the DJ's collection: finds missing metadata, spots duplicates, surfaces forgotten tracks and suggests crates.
-- **DJ problem:** Organizing a huge library by hand is endless and nobody has time to do it all.
-- **Hidden pain:** The collection outgrows the DJ's ability to know it.
-- **Emotional trigger:** Control, Freedom.
-- **Consequence:** Library chaos grows faster than anyone can clean it.
-- **Desired outcome:** Someone who knows my collection helps me manage it.
-- **Marketing angle:** Convenience framed as a librarian, not a robot DJ.
-- **Hooks:**
-  - [untested] An assistant that actually knows your collection.
-- **Ad:** Hold until the capability exists. Use only "planned" language before then.
-- **CTA:** Follow the roadmap.
-- **Evidence:** None yet.
-- **Research to run:** Which librarian tasks would DJs trust an assistant with first?
-- **Guardrail:** Never say "AI-powered DJ software" or imply it plays or mixes music.
+Use when the user brings customer interviews, survey answers, support tickets, ad performance, or quotes.
+
+1. Match each finding to the entry it speaks to (or note that it suggests a new entry).
+2. Record it in the Evidence field with source, date and sample size where known. Quote customers only with exact wording they gave.
+3. Re-grade the evidence level if warranted, and note when a hook or ad has won or lost a test.
+4. Flag when evidence contradicts an entry, and suggest revising the problem, angle or hook rather than defending the original.
+
+### 4. Audit the library
+
+Use when asked what's missing, what's strongest, or what to research next.
+
+Report: features with no entry, entries still at Hypothesis level, audiences with thin coverage, emotional territories nobody is using, and the three research questions that would most upgrade the library. Keep it short and ranked.
+
+## Evidence rules
+
+The library is only a source of truth if it separates what is known from what is hoped. Every entry carries one of these evidence levels, and the copy built on it must respect that level:
+
+- **Verified**: observed or measured (interviews, survey data, support logs, product analytics, ad results). Cite the source.
+- **Likely**: strongly consistent with known DJ behavior but not yet measured for DeepCrate's audience.
+- **Hypothesis**: a reasoned guess about the pain. Fine to test in ads, not fine to state as fact in copy ("DJs lose hours every week" needs backing).
+- **Needs research**: unknown; write the question to ask.
+
+Never invent statistics, testimonials, user counts, or "studies show" claims. If an ad would be stronger with proof the library doesn't have, say so and write the research or product-proof task needed to get it (a screenshot of a library health report, a real before/after, a customer quote with permission). Proof can be product-demonstrated (showing the feature working) as well as customer-supplied.
+
+## Positioning guardrails
+
+These come from how DeepCrate wants to show up in the market:
+
+- **Competitors**: don't attack Serato, Rekordbox, Traktor or others without evidence. Name the gap instead: DJ software helps you play music; DeepCrate helps you understand, organize, protect and preserve the collection behind the performance.
+- **Mobile**: not "manage your music from your phone." The idea is that the library shouldn't be trapped behind one computer. Never imply streaming; the collection stays the DJ's own.
+- **AI**: position as a music librarian or archivist that understands your collection, not a robot DJ and not generic "AI-powered" copy. Only describe AI capabilities that exist or are clearly labeled as planned.
+- **Destructive actions**: where a feature removes data (for example removing a track from the cloud), the copy should build trust through clarity about what is and isn't deleted, never make it sound casual.
+- **Local-first and ownership**: the DJ's files and organizational work are theirs. Lean on control and preservation, not lock-in.
+
+## Output style
+
+Lead with the DJ's problem in the DJ's own language. Be concrete, specific and a little blunt, the way a working DJ talks. Avoid feature lists in hooks, avoid "revolutionary" and "game-changing," and avoid generic pain. When presenting an entry, use the template layout exactly so entries stay scannable and comparable. Keep any commentary to what the user needs to decide.

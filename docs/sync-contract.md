@@ -13,7 +13,7 @@ desktop schema, Supabase migration or mobile mirror exists for
 ## Synced tables
 
 `tracks`, `tags`, `track_tags`, `crates`, `crate_tracks`, `track_identities`,
-`track_availability`.
+`track_availability`, `track_audio`.
 
 Not synced, on either side: `filepath`, `filename`, `folder_id`, `folders`,
 `library_roots`, `partial_hash`, `missing`, `last_seen_at`, artwork columns,
@@ -218,6 +218,48 @@ live row per `track_uuid`.
 
 **TODO(sync): with more than one desktop, the last desktop to write wins;
 per-device availability is not modelled.**
+
+### track_audio
+
+One row per track whose audio is stored in the cloud. A live row (`deleted_at`
+null) is what makes a track playable on mobile; no row, or a deleted one,
+means it is not.
+
+| Column | Type | Notes |
+|---|---|---|
+| track_uuid | uuid not null | → `tracks.client_uuid`; no database foreign key (may arrive before its track) |
+| sha256 | text not null | hash of the uploaded audio; the object key is `u/{user_id}/{sha256}` |
+| size_bytes | bigint not null | |
+| content_type | text not null | |
+
+Plus `client_uuid`, `updated_at`, `deleted_at` like every table. At most one
+live row per `track_uuid`.
+
+- **Written by desktop only, and only after the storage "complete" call
+  succeeds** — never for an upload that is still in flight or failed, so a
+  live row always points at an object that exists.
+- **Read-only everywhere else.** Mobile and the server never write it.
+- **Delete from cloud** (audio only; the track stays in the library):
+  desktop sets `deleted_at` on the row. The track is then no longer playable
+  on mobile.
+- **Track deleted:** its `track_audio` row is tombstoned with the track, and
+  the stored file stays until the 14-day purge, so "Download a copy" keeps
+  working (see Delete semantics).
+- Plain last-write-wins on `updated_at`, like the other tables. Its delete
+  records follow the same 90-day retention (see Retention).
+
+**Removing the stored file.** Two of a user's tracks with identical audio
+share one file (same `sha256`, same key). The file is removed only when no
+live `track_audio` row (`deleted_at` null) of the same user references the
+same `sha256`. That check is server-side, in the storage delete function.
+Desktop writes `deleted_at` first, then calls delete; delete is a no-op
+while another live row still references the hash.
+
+**Note for `deepcrate-web`:** the download-url function must still work for
+a hidden object during the 14-day window, by using the version id recorded
+at complete.
+
+Artwork is not stored or synced here; that is a separate, open decision.
 
 ### crate_tracks
 
