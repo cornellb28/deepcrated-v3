@@ -8,6 +8,7 @@
 // a very wide display. Letting a card stretch to fill the row instead
 // would give 600px-wide cards with the right half empty, which is worse
 // than adding a column.
+import { isEnergySet } from '../../../shared/energy'
 export const TRACK_CARD_MIN_WIDTH = 380
 // At one column the grid cell is the whole content area, and a 1300px-wide
 // card is mostly empty space to the right of the text. Capping it keeps the
@@ -83,7 +84,8 @@ export function trackStats(track: {
   const stats: TrackStat[] = []
   if (track.bpm) stats.push({ value: String(track.bpm), label: 'BPM', color: '#5d9fd8' })
   if (track.key_camelot) stats.push({ value: track.key_camelot, label: 'KEY', color: '#3db88a' })
-  if (track.energy) stats.push({ value: String(track.energy), label: 'NRG', color: '#d4537e' })
+  if (isEnergySet(track.energy))
+    stats.push({ value: String(track.energy), label: 'NRG', color: '#d4537e' })
   const duration = trackDuration(track)
   if (duration) stats.push({ value: duration, label: 'TIME', color: '#8a8aa0' })
   const format = fileFormat(track.filepath)

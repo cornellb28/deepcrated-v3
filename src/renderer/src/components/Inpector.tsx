@@ -2,7 +2,6 @@ import React, { useRef, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { ChevronLeft, ChevronRight, Pencil } from 'lucide-react'
 import { useLibraryStore } from '../store/useLibraryStore'
-import { Slider } from '@renderer/components/ui/slider'
 import { Separator } from '@renderer/components/ui/separator'
 import { TagInput } from './TagInput'
 import { StagePill } from './StagePill'
@@ -15,6 +14,8 @@ import { fullTrackMeta } from '../lib/tagMeta'
 import { refreshArtists } from '../lib/refreshArtists'
 import { RelatedTracks } from './RelatedTracks'
 import { Bpm } from './Bpm'
+import { EnergyPicker } from './EnergyPicker'
+import { toEnergy } from '../../../shared/energy'
 import { notifyTrackSaved } from '../lib/trackEvents'
 
 const CAMELOT_KEYS = [
@@ -172,7 +173,12 @@ export function Inspector(): React.JSX.Element {
   async function saveField(field: string, value: string): Promise<void> {
     if (!track) return
 
-    const newValue = field === 'bpm' ? parseFloat(value) || null : value || null
+    const newValue =
+      field === 'bpm'
+        ? parseFloat(value) || null
+        : field === 'energy'
+          ? toEnergy(value)
+          : value || null
     updateTrack(track.id, { [field]: newValue })
 
     // Only the field that changed — updateTrackMeta merges onto the row, so
@@ -514,17 +520,12 @@ export function Inspector(): React.JSX.Element {
                 <label className="text-[10px] font-medium tracking-widest uppercase text-muted-foreground">
                   Energy
                 </label>
-                <div className="flex items-center gap-3">
-                  <Slider
-                    defaultValue={[track.energy ?? 5]}
-                    min={1} max={10} step={1}
-                    onValueCommit={(val) => saveField('energy', val[0].toString())}
-                    className="flex-1"
-                  />
-                  <span className="text-xs font-mono text-muted-foreground w-4 text-right">
-                    {track.energy ?? '—'}
-                  </span>
-                </div>
+                {/* Your own rating; "—" is unset, never a default of 5. */}
+                <EnergyPicker
+                  value={track.energy}
+                  onChange={(v) => saveField('energy', v === null ? '' : String(v))}
+                  testId="inspector-energy"
+                />
               </div>
 
               {/* Year */}

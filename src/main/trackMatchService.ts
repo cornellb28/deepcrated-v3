@@ -16,6 +16,7 @@ import {
   type MatchCandidateRow
 } from './db'
 import { splitValue } from './tagFields'
+import { toEnergy } from '../shared/energy'
 import {
   bpmRanges,
   normalizeProfile,
@@ -109,7 +110,8 @@ function toMatchTrack(row: MatchCandidateRow, extras: TagOnlyValues): MatchTrack
     artist: row.artist,
     bpm: row.bpm,
     key: row.key_camelot,
-    energy: row.energy,
+    // 0 or out-of-range stored values are "no energy", never a low one.
+    energy: toEnergy(row.energy),
     tags: tagsOf(row, extras)
   }
 }
@@ -174,7 +176,7 @@ export function getRelatedTracks(
   return {
     status: 'ok',
     coldStart,
-    directionByBpm: direction !== 'similar' && typeof sourceRow.energy !== 'number',
+    directionByBpm: direction !== 'similar' && toEnergy(sourceRow.energy) === null,
     candidatesScored: rows.length,
     results: outcome.results.map((r) => {
       const row = byId.get(r.id)!

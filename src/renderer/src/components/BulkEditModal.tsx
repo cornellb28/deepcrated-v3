@@ -10,6 +10,8 @@ import { useArtworkUrl } from '../hooks/useArtworkUrl'
 import { fieldToMetaKey, joinTagValues, withTrackIdentity } from '../lib/tagMeta'
 import { StagePill } from './StagePill'
 import { TapTempo } from './TapTempo'
+import { EnergyPicker } from './EnergyPicker'
+import { toEnergy } from '../../../shared/energy'
 import { reanalyzeTrack } from '../lib/reanalyze'
 import { flushStageWrites } from '../lib/stageCommit'
 import { STAGE_NOUN } from '../lib/stages'
@@ -189,6 +191,7 @@ export function BulkEditModal({
   // tempo is saved (see saveTappedBpm), which is stored as a number.
   function columnValue(field: string, raw: string): string | number | null {
     if (field === 'bpm') return parseFloat(raw) || null
+    if (field === 'energy') return toEnergy(raw)
     return raw || null
   }
 
@@ -218,10 +221,11 @@ export function BulkEditModal({
       for (const field of fields) {
         const value = columnValue(field, values[field])
         columns[field] = value
-        meta[fieldToMetaKey(field)] = (value ?? '') as never
+        // Energy is DeepCrated's own; no tag carries it.
+        if (field !== 'energy') meta[fieldToMetaKey(field)] = (value ?? '') as never
       }
       updateTrack(track.id, columns as Partial<Track>)
-      collectFileWrite(fileWrites, track, meta)
+      if (Object.keys(meta).length > 0) collectFileWrite(fileWrites, track, meta)
       pendingDbWrites.push({ id: track.id, ...columns } as Partial<Track> & { id: number })
       savedNow.add(track.id)
     }
@@ -798,6 +802,28 @@ export function BulkEditModal({
               ))}
             </select>
           </FieldRow>
+
+          {/* Energy — your own 1–10 rating ("—" = unset). Saves like Year;
+              with the box ticked, "Apply to all" sets it on the selection. */}
+          <FieldRow
+            showCheckbox={isBulk}
+            checked={checkedFields.has('energy')}
+            onToggle={() => toggleField('energy')}
+            color={ACCENT}
+          >
+            <InlineLabel text="Energy" dirty={dirtyFields.includes('energy')} />
+            <div style={{ flex: 1 }}>
+              <EnergyPicker
+                value={
+                  textValues.energy !== undefined ? toEnergy(textValues.energy) : currentTrack.energy
+                }
+                onChange={(v) =>
+                  setTextValues((prev) => ({ ...prev, energy: v === null ? '' : String(v) }))
+                }
+                testId="edit-modal-energy"
+              />
+            </div>
+          </FieldRow>
         </div>
 
         {/* ── Footer ───────────────────────────────── */}
@@ -864,7 +890,7 @@ export function BulkEditModal({
 // Every free-text field the modal writes. BPM and key are deliberately
 // absent: they are measured by the sidecar and shown as header badges, not
 // typed, so nothing here can put a hand-entered value into those columns.
-const EDITABLE_TEXT_FIELDS = ['year']
+const EDITABLE_TEXT_FIELDS = ['year', 'energy']
 
 // ─── Small pieces ─────────────────────────────────────────
 

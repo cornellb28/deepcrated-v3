@@ -25,6 +25,8 @@
 
 // ── The profile ───────────────────────────────────────────────────────────
 
+import { ENERGY_MAX, ENERGY_MIN } from './energy'
+
 export type KeyMode = 'strict' | 'flexible' | 'loose'
 export type BpmWindow = 3 | 6 | 10 | 'wide'
 export type EnergyMovement = 'gradual' | 'swings' | 'manual'
@@ -322,10 +324,9 @@ export function bpmScore(
   }
 }
 
-// ── Energy (1..10, set by hand) ───────────────────────────────────────────
+// ── Energy (the DJ's rating; range and "unset" live in energy.ts) ─────────
 
-export const ENERGY_MIN = 1
-export const ENERGY_MAX = 10
+export { ENERGY_MAX, ENERGY_MIN }
 
 // Lift / Drop move the target one step; Similar keeps it.
 export function energyTarget(sourceEnergy: number, direction: Direction): number {

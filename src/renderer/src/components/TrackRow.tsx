@@ -6,6 +6,7 @@ import { Checkbox } from '@renderer/components/ui/checkbox'
 import { useArtworkUrl } from '../hooks/useArtworkUrl'
 import { TrackRowMenu } from './TrackRowMenu'
 import { Bpm } from './Bpm'
+import { isEnergySet } from '../../../shared/energy'
 import { StagePill } from './StagePill'
 import { TagBadge } from './TagBadge'
 import type { SelectModifiers } from '../lib/selection'
@@ -230,7 +231,7 @@ export function TrackRow({
             {track.key_camelot}
           </Badge>
         )}
-        {track.energy && (
+        {isEnergySet(track.energy) && (
           <Badge variant="outline" style={{
             fontSize: '10px', height: '20px', padding: '0 6px',
             background: '#261a1a', color: '#d4537e', borderColor: '#261a1a',
