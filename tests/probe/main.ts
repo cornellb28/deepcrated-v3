@@ -58,6 +58,7 @@ async function run(): Promise<void> {
   const stats = await import('../../src/main/stats')
   const identityEngine = await import('../../src/main/identity/engine')
   const artistRuntime = await import('../../src/main/artist/runtime')
+  const tagCleanupRuntime = await import('../../src/main/tagCleanup/runtime')
 
   const registry: Record<string, (...args: never[]) => unknown> = {
     ...(db as unknown as Record<string, (...args: never[]) => unknown>),
@@ -95,6 +96,14 @@ async function run(): Promise<void> {
     artistUndoInfo: (() => artistRuntime.artistCleaner.undoInfo()) as unknown as (
       ...args: never[]
     ) => unknown,
+    // ── Metadata Cleanup ───────────────────────────────────────────────
+    // The service only; file writes are the edit-tags job in index.ts.
+    ...(Object.fromEntries(
+      Object.entries(tagCleanupRuntime.tagCleanup).map(([name, fn]) => [
+        'cleanup' + name.charAt(0).toUpperCase() + name.slice(1),
+        fn
+      ])
+    ) as unknown as Record<string, (...args: never[]) => unknown>),
     // What the database holds for a track's artist: the column, the tags (in
     // order) and the stored original.
     artistState: ((id: number) => {

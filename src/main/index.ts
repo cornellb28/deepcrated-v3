@@ -146,6 +146,7 @@ import {
   getIdentityStatus
 } from './identity/runtime'
 import { artistCleaner, processNewArtists, setArtistCleanSender } from './artist/runtime'
+import { checkImportsForCleanup, setTagCleanupSender, tagCleanup } from './tagCleanup/runtime'
 import { startStatsUploader, flushStatsOnQuit, shouldFlushOnQuit } from './stats/runtime'
 
 // Raise file handle limit for large libraries
@@ -1100,7 +1101,9 @@ async function runEditTagsJob(
   event: Electron.IpcMainInvokeEvent,
   job: EditTagsJob,
   items: EditTagsBatchItem[],
-  writeSerato: boolean
+  writeSerato: boolean,
+  // Metadata Cleanup records which files were written; other callers don't.
+  onResult?: (result: EditTagsResult) => void
 ): Promise<void> {
   try {
     await queueTagWrites(
@@ -1111,6 +1114,7 @@ async function runEditTagsJob(
           (result: EditTagsResult) => {
             job.doneCount++
             job.currentFile = result.filepath ?? job.currentFile
+            onResult?.(result)
             if (!result.success) {
               job.failed.push({
                 filepath: result.filepath ?? '(unknown)',
@@ -1464,6 +1468,7 @@ async function runFolderImport(
       // New tracks get their artist names cleaned and turned into tags, in the
       // background; relinked and re-scanned rows are not new and are skipped.
       processNewArtists(inserted.filter((r) => r.id > 0 && r.wasInserted).map((r) => r.id))
+      checkImportsForCleanup(inserted.filter((r) => r.id > 0 && r.wasInserted).map((r) => r.id))
     }
 
     job.nextIndex = i + batchPaths.length
@@ -1876,6 +1881,7 @@ protocol.registerSchemesAsPrivileged([
 app.whenReady().then(() => {
   startStatsUploader()
   setArtistCleanSender((channel, payload) => mainWindow?.webContents.send(channel, payload))
+  setTagCleanupSender((channel, payload) => mainWindow?.webContents.send(channel, payload))
   startIdentityBackfill({
     send: (status) => mainWindow?.webContents.send('identity:progress', status),
     // Step aside while an import is walking or parsing a folder.
@@ -2234,7 +2240,10 @@ app.whenReady().then(() => {
           const hash = await storeArtwork(Buffer.from(fastResult.artwork_base64, 'base64'))
           if (hash) setTrackArtworkHash(trackId, hash)
         }
-        if (insertResult.wasInserted && trackId > 0) processNewArtists([trackId])
+        if (insertResult.wasInserted && trackId > 0) {
+          processNewArtists([trackId])
+          checkImportsForCleanup([trackId])
+        }
       }
 
       // Tell renderer the track exists so it can refresh the list
@@ -2524,7 +2533,10 @@ app.whenReady().then(() => {
     try {
       const result = insertTrack(track) as { lastInsertRowid: number | bigint; wasInserted: boolean }
       const id = Number(result.lastInsertRowid)
-      if (result.wasInserted && id > 0) processNewArtists([id])
+      if (result.wasInserted && id > 0) {
+        processNewArtists([id])
+        checkImportsForCleanup([id])
+      }
       return { ok: true, id }
     } catch (err) {
       console.error('db:insert-track failed:', err)
@@ -3454,6 +3466,88 @@ app.whenReady().then(() => {
   ipcMain.handle('artist:undo', () => guard(() => artistCleaner.undoLastBatch()))
   ipcMain.handle('artist:undo-info', () => artistCleaner.undoInfo())
 
+  // ── Metadata Cleanup (split combined tag values) ────────────
+  // Database changes and file writes are separate, explicit steps. Files go
+  // through the same edit-tags job as every other tag write, so they show in
+  // the background-jobs panel; the first write of a batch is a canary of
+  // CLEANUP_CANARY_FILES that stops for the DJ to check in Serato.
+  const CLEANUP_CANARY_FILES = 3
+  ipcMain.handle('tag-cleanup:scan', () => guard(() => tagCleanup.scan()))
+  ipcMain.handle('tag-cleanup:plan', (_e, choices: unknown) =>
+    guard(() => tagCleanup.plan(choices as Parameters<typeof tagCleanup.plan>[0]))
+  )
+  ipcMain.handle('tag-cleanup:apply', (_e, req: unknown) =>
+    guard(() => tagCleanup.apply(req as Parameters<typeof tagCleanup.apply>[0]))
+  )
+  ipcMain.handle('tag-cleanup:batches', () => guard(() => tagCleanup.batches()))
+  ipcMain.handle('tag-cleanup:undo', (_e, batchId: unknown, dryRun: unknown) =>
+    typeof batchId === 'string'
+      ? guard(() => tagCleanup.undo(batchId, dryRun === true))
+      : { ok: false, error: 'Invalid batch' }
+  )
+  ipcMain.handle('tag-cleanup:file-counts', (_e, batchId: unknown) =>
+    typeof batchId === 'string'
+      ? guard(() => ({
+          toWrite: tagCleanup.fileWrites(batchId).length,
+          toRestore: tagCleanup.fileRestores(batchId).length
+        }))
+      : { ok: false, error: 'Invalid batch' }
+  )
+  ipcMain.handle(
+    'tag-cleanup:write-files',
+    (event, batchId: unknown, mode: unknown, restore: unknown) => {
+      if (typeof batchId !== 'string') return { ok: false, error: 'Invalid batch' }
+      const restoring = restore === true
+      const canary = !restoring && mode === 'canary'
+      return guard(() => {
+        const items = restoring
+          ? tagCleanup.fileRestores(batchId)
+          : tagCleanup.fileWrites(batchId, canary ? CLEANUP_CANARY_FILES : undefined)
+        if (items.length === 0) return { jobId: null, filepaths: [] as string[] }
+        const byPath = new Map(items.map((i) => [i.filepath, i.changeIds]))
+        tagCleanup.setFilesStatus(batchId, restoring ? 'restoring' : 'writing')
+        const job: EditTagsJob = {
+          type: 'editTags',
+          id: randomUUID(),
+          total: items.length,
+          doneCount: 0,
+          currentFile: '',
+          status: 'running',
+          failed: []
+        }
+        jobs.set(job.id, job)
+        void runEditTagsJob(
+          event,
+          job,
+          items.map((i) => ({ filepath: i.filepath, meta: i.meta })),
+          true,
+          (result) => {
+            const ids = result.success && result.filepath ? byPath.get(result.filepath) : undefined
+            if (!ids) return
+            if (restoring) tagCleanup.markFileRestored(ids)
+            else tagCleanup.markFileWritten(ids)
+          }
+        ).finally(() => {
+          const left = restoring
+            ? tagCleanup.fileRestores(batchId).length
+            : tagCleanup.fileWrites(batchId).length
+          const status = restoring
+            ? left === 0
+              ? 'restored'
+              : 'partial'
+            : left === 0
+              ? 'written'
+              : canary
+                ? 'canary'
+                : 'partial'
+          tagCleanup.setFilesStatus(batchId, status)
+          mainWindow?.webContents.send('tag-cleanup:files-done', { batchId, status, left })
+        })
+        return { jobId: job.id, filepaths: items.map((i) => i.filepath) }
+      })
+    }
+  )
+
   // ── Track identity (background backfill) ─────────────────
   ipcMain.handle('identity:get-status', () => getIdentityStatus())
   ipcMain.handle('identity:kick', () => {
@@ -3590,7 +3684,10 @@ app.whenReady().then(() => {
           const hash = await storeArtwork(Buffer.from(result.artwork_base64, 'base64'))
           if (hash) setTrackArtworkHash(trackId, hash)
         }
-        if (insertResult.wasInserted && trackId > 0) processNewArtists([trackId])
+        if (insertResult.wasInserted && trackId > 0) {
+          processNewArtists([trackId])
+          checkImportsForCleanup([trackId])
+        }
 
         // Queue as pending change for DJ to review
         insertPendingChange({

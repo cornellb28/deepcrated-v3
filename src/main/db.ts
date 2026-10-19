@@ -12,6 +12,7 @@ import { createSqliteIdentityStore, refreshCanonicalTrackId } from './identity/s
 import type { IdentityStore } from './identity/types'
 import { normalizeIsrc, normalizeMbid } from './identity/canonical'
 import { createSqliteArtistStore } from './artist/sqliteStore'
+import { createSqliteTagCleanupStore, type TagCleanupStore } from './tagCleanup/sqliteStore'
 import type { ArtistStore } from './artist/types'
 import type { StatsStore } from './stats/types'
 import {
@@ -675,6 +676,61 @@ db.exec(`
     prev_tags    TEXT    NOT NULL,
     file_written INTEGER NOT NULL DEFAULT 0
   );
+`)
+
+// ─── Metadata Cleanup (split combined tag values) ───────────────────────────
+// See main/tagCleanup/. Rules the DJ confirmed, and a log of every applied
+// batch so each one can be undone, file tags included.
+db.exec(`
+  -- Confirmed delimiters per field ("genre" + " x "). Never " x " on artist
+  -- or label; that is enforced in code (shared/tagCleanup.ts).
+  CREATE TABLE IF NOT EXISTS tag_split_rules (
+    field      TEXT    NOT NULL,
+    delimiter  TEXT    NOT NULL,
+    created_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+    PRIMARY KEY (field, delimiter)
+  );
+
+  -- One value → its chosen spelling(s). Aliases (r&b → RnB) and exact-value
+  -- splits ("GOTOS HEADZ" → GOTOS, HEADZ). match_key is tagValueKey(value);
+  -- result is a JSON array of values exactly as they are to be stored.
+  CREATE TABLE IF NOT EXISTS tag_rewrite_rules (
+    field      TEXT    NOT NULL,
+    match_key  TEXT    NOT NULL,
+    result     TEXT    NOT NULL,
+    created_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+    PRIMARY KEY (field, match_key)
+  );
+
+  CREATE TABLE IF NOT EXISTS tag_cleanup_batches (
+    id           TEXT    PRIMARY KEY,
+    created_at   INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+    source       TEXT    NOT NULL CHECK (source IN ('library','import')),
+    status       TEXT    NOT NULL DEFAULT 'applied' CHECK (status IN ('applied','undone')),
+    -- canary: the first few files are written and wait for the DJ to check
+    -- them in Serato before the rest.
+    files_status TEXT    NOT NULL DEFAULT 'none'
+                 CHECK (files_status IN ('none','canary','writing','written','partial',
+                                         'restoring','restored')),
+    undone_at    INTEGER
+  );
+
+  -- One row per track and field a batch changed. No cascade: the log
+  -- outlives a deleted track (undo then skips it).
+  CREATE TABLE IF NOT EXISTS tag_cleanup_changes (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    batch_id      TEXT    NOT NULL REFERENCES tag_cleanup_batches(id),
+    track_id      INTEGER NOT NULL,
+    field         TEXT    NOT NULL,
+    prev_column   TEXT,
+    prev_tags     TEXT    NOT NULL,
+    new_tags      TEXT    NOT NULL,
+    file_written  INTEGER NOT NULL DEFAULT 0,
+    -- Set by undo: the database was put back (a track edited since is not).
+    restored      INTEGER NOT NULL DEFAULT 0,
+    file_restored INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE INDEX IF NOT EXISTS idx_tag_cleanup_changes_batch ON tag_cleanup_changes(batch_id);
 `)
 
 // ─── Track identity (shareable ids) ──────────────────────────────────────────
@@ -2755,6 +2811,10 @@ export function getStatsStore(): StatsStore {
 // imports the store, so the reverse would be circular.
 export function getArtistStore(): ArtistStore {
   return createSqliteArtistStore(db, { setTagsForField, getSetting })
+}
+
+export function getTagCleanupStore(): TagCleanupStore {
+  return createSqliteTagCleanupStore(db)
 }
 
 // ─── Track identity store ─────────────────────────────────
