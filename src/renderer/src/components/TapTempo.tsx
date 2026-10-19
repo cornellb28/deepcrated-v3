@@ -140,7 +140,7 @@ export function TapTempo({
     >
       <Bpm size="modal" value={shown} busy={analyzing} testId="edit-modal-bpm" />
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', minWidth: '96px' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', minWidth: '124px' }}>
         <div
           style={{
             fontSize: '10px',
@@ -254,6 +254,8 @@ function SmallButton({
       style={{
         flex: 1,
         height: '24px',
+        padding: '0 8px',
+        whiteSpace: 'nowrap',
         borderRadius: '6px',
         border: `0.5px solid ${primary ? '#7f77dd' : '#2a2a3a'}`,
         background: primary ? '#7f77dd' : '#1a1a26',
