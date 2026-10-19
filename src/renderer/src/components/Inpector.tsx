@@ -1,5 +1,6 @@
 import React, { useRef, useEffect, useState } from 'react'
 import { toast } from 'sonner'
+import { Pencil } from 'lucide-react'
 import { useLibraryStore } from '../store/useLibraryStore'
 import { Slider } from '@renderer/components/ui/slider'
 import { Separator } from '@renderer/components/ui/separator'
@@ -331,6 +332,33 @@ export function Inspector(): React.JSX.Element {
                 />
               )}
 
+              {/* Edit artwork: top right, over the image. */}
+              <button
+                type="button"
+                data-testid="inspector-change-artwork"
+                onClick={changeArtwork}
+                title="Change artwork"
+                aria-label="Change artwork"
+                style={{
+                  position: 'absolute',
+                  top: '6px',
+                  right: '6px',
+                  zIndex: 1,
+                  width: '24px',
+                  height: '24px',
+                  borderRadius: '50%',
+                  border: 'none',
+                  background: 'rgba(0,0,0,0.6)',
+                  color: '#fff',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <Pencil size={12} />
+              </button>
+
               {/* Analyzing overlay */}
               {analyzing && (
                 <div style={{
@@ -354,24 +382,6 @@ export function Inspector(): React.JSX.Element {
                 </div>
               )}
             </div>
-            <button
-              type="button"
-              data-testid="inspector-change-artwork"
-              onClick={changeArtwork}
-              style={{
-                alignSelf: 'center',
-                background: 'none',
-                border: 'none',
-                padding: 0,
-                color: '#7f77dd',
-                fontSize: '11px',
-                cursor: 'pointer',
-              }}
-              onMouseEnter={(e) => (e.currentTarget.style.textDecoration = 'underline')}
-              onMouseLeave={(e) => (e.currentTarget.style.textDecoration = 'none')}
-            >
-              Change artwork
-            </button>
             </div>
 
             {/* Now inspecting: always visible while the fields below scroll. */}
@@ -592,9 +602,7 @@ export function Inspector(): React.JSX.Element {
             flexShrink: 0,
           }}>
             <Separator className="bg-[#1e1e2a]" />
-            <ReadField label="Duration" value={track.duration_str} />
             <ReadField label="Format" value={track.format} />
-            <ReadField label="Key full" value={track.key_full} />
             {track.artist_raw && track.artist_raw !== track.artist && (
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
                 <span style={{ fontSize: '11px', color: '#555' }}>

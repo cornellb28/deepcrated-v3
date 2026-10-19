@@ -1,18 +1,22 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Pause, Play } from 'lucide-react'
+import { FolderPlus, Pause, Play, Plus } from 'lucide-react'
 import { useArtworkUrl } from '../hooks/useArtworkUrl'
 import { useLibraryStore } from '../store/useLibraryStore'
 import { usePlayerStore } from '../store/usePlayerStore'
 import { useMatchStore } from '../store/useMatchStore'
 import { onTrackSavedDebounced } from '../lib/trackEvents'
+import { CratePickerModal } from './CratePickerModal'
 
 // Inspector > Related: the best next tracks for this one, scored by Track
 // Match against the DJ's Mix Profile (main/trackMatchService.ts). Re-ranks
 // RERANK_DELAY_MS after a successful save or tag change on this track.
+// A click selects a card and a double click opens it in the Inspector;
 // Left/Right move between cards and Enter opens one — Up/Down already move
 // between tracks — and keys are ignored while a text field has focus.
 // Hovering a card shows a play button that previews it without leaving the
-// track being inspected.
+// track being inspected, and a + that crates it together with this track.
+// The crate button in the header crates this track with all its related ones.
+// Both open the usual crate picker: name a new crate or add to an existing one.
 
 const RERANK_DELAY_MS = 400
 
@@ -52,6 +56,8 @@ export function RelatedTracks({ trackId }: { trackId: number }): React.JSX.Eleme
   const [hovered, setHovered] = useState<{ item: RelatedItem; x: number; y: number } | null>(null)
   const requestSeq = useRef(0)
   const listRef = useRef<HTMLDivElement>(null)
+  // Tracks to put in a crate: the picker is open while this is set.
+  const [crateIds, setCrateIds] = useState<number[] | null>(null)
 
   const load = useCallback(async () => {
     const seq = ++requestSeq.current
@@ -107,16 +113,38 @@ export function RelatedTracks({ trackId }: { trackId: number }): React.JSX.Eleme
           marginBottom: '8px'
         }}
       >
-        <div
-          style={{
-            fontSize: '10px',
-            fontWeight: 500,
-            letterSpacing: '0.8px',
-            textTransform: 'uppercase',
-            color: '#333'
-          }}
-        >
-          Related
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <div
+            style={{
+              fontSize: '10px',
+              fontWeight: 500,
+              letterSpacing: '0.8px',
+              textTransform: 'uppercase',
+              color: '#333'
+            }}
+          >
+            Related
+          </div>
+          {items.length > 0 && (
+            <button
+              type="button"
+              data-testid="related-make-crate"
+              title="Make a crate from this track and its related tracks"
+              aria-label="Make a crate from this track and its related tracks"
+              onClick={() => setCrateIds([trackId, ...items.map((i) => i.id)])}
+              style={{
+                background: 'none',
+                border: 'none',
+                padding: '2px',
+                color: '#7f77dd',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center'
+              }}
+            >
+              <FolderPlus size={13} />
+            </button>
+          )}
         </div>
         <div
           role="radiogroup"
@@ -195,7 +223,9 @@ export function RelatedTracks({ trackId }: { trackId: number }): React.JSX.Eleme
                 item={item}
                 active={index === selected}
                 onHover={(rect) => setHovered(rect ? { item, x: rect.left, y: rect.top } : null)}
+                onSelect={() => setSelected(index)}
                 onOpen={() => setActiveTrack(item.id)}
+                onCrate={() => setCrateIds([trackId, item.id])}
               />
             ))}
           </div>
@@ -238,6 +268,11 @@ export function RelatedTracks({ trackId }: { trackId: number }): React.JSX.Eleme
           )}
         </>
       )}
+      <CratePickerModal
+        trackIds={crateIds ?? []}
+        open={crateIds !== null}
+        onClose={() => setCrateIds(null)}
+      />
     </div>
   )
 }
@@ -246,12 +281,16 @@ function RelatedCard({
   item,
   active,
   onHover,
-  onOpen
+  onSelect,
+  onOpen,
+  onCrate
 }: {
   item: RelatedItem
   active: boolean
   onHover: (rect: DOMRect | null) => void
+  onSelect: () => void
   onOpen: () => void
+  onCrate: () => void
 }): React.JSX.Element {
   const art = useArtworkUrl(item.artwork_hash, 'thumb')
   const [hovered, setHovered] = useState(false)
@@ -281,7 +320,8 @@ function RelatedCard({
       tabIndex={-1}
       data-related-card
       data-testid="related-card"
-      onClick={onOpen}
+      onClick={onSelect}
+      onDoubleClick={onOpen}
       onMouseEnter={(e) => {
         setHovered(true)
         onHover(e.currentTarget.getBoundingClientRect())
@@ -324,8 +364,39 @@ function RelatedCard({
         )}
         <button
           type="button"
+          data-testid="related-crate"
+          onClick={(e) => {
+            e.stopPropagation()
+            onCrate()
+          }}
+          onDoubleClick={(e) => e.stopPropagation()}
+          title="Make a crate with this track and the one you're inspecting"
+          aria-label="Make a crate with this track and the one you're inspecting"
+          style={{
+            position: 'absolute',
+            top: '4px',
+            left: '4px',
+            width: '20px',
+            height: '20px',
+            borderRadius: '50%',
+            border: 'none',
+            background: 'rgba(0,0,0,0.6)',
+            color: '#fff',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            opacity: hovered ? 1 : 0,
+            transition: 'opacity 0.15s'
+          }}
+        >
+          <Plus size={11} />
+        </button>
+        <button
+          type="button"
           data-testid="related-play"
           onClick={(e) => void handlePlay(e)}
+          onDoubleClick={(e) => e.stopPropagation()}
           title={playing ? 'Pause' : 'Play'}
           aria-label={playing ? 'Pause track' : 'Play track'}
           style={{
