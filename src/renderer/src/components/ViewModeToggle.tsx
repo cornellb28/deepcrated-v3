@@ -28,7 +28,7 @@ export function ViewModeToggle({ mode, onChange }: ViewModeToggleProps): React.J
           borderRadius: '3px',
           padding: '2px 5px',
           cursor: 'pointer',
-          color: mode === 'list' ? '#a09be8' : '#444',
+          color: mode === 'list' ? '#a09be8' : '#8a8aa0',
           fontSize: '11px',
           lineHeight: 1
         }}
@@ -45,7 +45,7 @@ export function ViewModeToggle({ mode, onChange }: ViewModeToggleProps): React.J
           borderRadius: '3px',
           padding: '2px 5px',
           cursor: 'pointer',
-          color: mode === 'grid' ? '#a09be8' : '#444',
+          color: mode === 'grid' ? '#a09be8' : '#8a8aa0',
           fontSize: '11px',
           lineHeight: 1
         }}

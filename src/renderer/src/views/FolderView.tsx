@@ -1,6 +1,8 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react'
 import { toast } from 'sonner'
 import { useLibraryStore } from '../store/useLibraryStore'
+import { useViewMode } from '../hooks/useViewMode'
+import { ViewModeToggle } from '../components/ViewModeToggle'
 import { FolderCard } from '../components/FolderCard'
 import { MosaicArtwork } from '../components/MosaicArtwork'
 import { TrackRow } from '../components/TrackRow'
@@ -26,12 +28,16 @@ interface FolderViewProps {
 }
 
 export function FolderView({ libraryRoots, onRootsChanged }: FolderViewProps): React.JSX.Element {
+  // Its own list/grid choice, remembered; starts from the old shared mode.
+  const [displayMode, setDisplayMode] = useViewMode(
+    'folders',
+    useLibraryStore.getState().displayMode
+  )
   // `folders`/`folderCounts` live in the shared store, populated once at
   // startup and kept fresh by App.tsx's single debounced onFoldersChanged
   // subscription — this view just reads them, it doesn't fetch its own copy.
   const {
     tracks,
-    displayMode,
     isAnalyzing,
     setAnalyzing,
     setTracks,
@@ -1018,20 +1024,34 @@ export function FolderView({ libraryRoots, onRootsChanged }: FolderViewProps): R
         {/* Tracks in this folder */}
         {folderTracks.length > 0 && (
           <div style={{ padding: subfolders.length > 0 ? '0 24px 24px' : '20px 24px 24px' }}>
-            {subfolders.length > 0 && (
-              <h2
-                style={{
-                  fontSize: '11px',
-                  fontWeight: 500,
-                  letterSpacing: '1px',
-                  textTransform: 'uppercase',
-                  color: '#444',
-                  marginBottom: '14px'
-                }}
-              >
-                Tracks in this folder
-              </h2>
-            )}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                marginBottom: '14px'
+              }}
+            >
+              {subfolders.length > 0 ? (
+                <h2
+                  style={{
+                    fontSize: '11px',
+                    fontWeight: 500,
+                    letterSpacing: '1px',
+                    textTransform: 'uppercase',
+                    color: '#444',
+                    margin: 0
+                  }}
+                >
+                  Tracks in this folder
+                </h2>
+              ) : (
+                <span />
+              )}
+              {folderTracks.length > 0 && (
+                <ViewModeToggle mode={displayMode} onChange={setDisplayMode} />
+              )}
+            </div>
 
             {/* BulkBar */}
             <BulkBar

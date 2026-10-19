@@ -1,5 +1,7 @@
 import React, { useMemo, useState } from 'react'
 import { useLibraryStore, useFilteredTracks } from '../store/useLibraryStore'
+import { useViewMode } from '../hooks/useViewMode'
+import { ViewModeToggle } from '../components/ViewModeToggle'
 import { TrackRow } from '../components/TrackRow'
 import { TrackCard } from '../components/TrackCard'
 import { TRACK_GRID_GAP, trackGridColumns } from '../lib/trackCard'
@@ -31,7 +33,12 @@ export function TagPageView({
   onBack,
   backLabel = '← All tags'
 }: TagPageViewProps): React.JSX.Element {
-  const { tracks, trackTags, displayMode } = useLibraryStore()
+  const { tracks, trackTags } = useLibraryStore()
+  // Its own list/grid choice, remembered; starts from the old shared mode.
+  const [displayMode, setDisplayMode] = useViewMode(
+    'tag_page',
+    useLibraryStore.getState().displayMode
+  )
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
 
   const tagIds = useMemo(() => tags.map((t) => t.id), [tags])
@@ -106,6 +113,7 @@ export function TagPageView({
         <span style={{ marginLeft: 'auto', fontSize: '12px', color: '#555' }}>
           {visibleTracks.length} track{visibleTracks.length !== 1 ? 's' : ''}
         </span>
+        <ViewModeToggle mode={displayMode} onChange={setDisplayMode} />
       </div>
 
       {/* ── Row 1 — Narrow further ───────────────────────────── */}

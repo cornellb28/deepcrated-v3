@@ -1,5 +1,7 @@
 import React, { useMemo, useRef, useState } from 'react'
 import { useLibraryStore, useFilteredTracks } from '../store/useLibraryStore'
+import { useViewMode } from '../hooks/useViewMode'
+import { ViewModeToggle } from '../components/ViewModeToggle'
 import { useBrowseStore } from '../store/useBrowseStore'
 import { TrackRow } from '../components/TrackRow'
 import { BulkBar } from '../components/BulkBar'
@@ -27,7 +29,11 @@ interface Props {
 export function BrowseTrackListView({ dimension, valueKey, label }: Props): React.JSX.Element {
   const tracks = useLibraryStore((s) => s.tracks)
   const trackTags = useLibraryStore((s) => s.trackTags)
-  const displayMode = useLibraryStore((s) => s.displayMode)
+  // Its own list/grid choice, remembered; starts from the old shared mode.
+  const [displayMode, setDisplayMode] = useViewMode(
+    'browse_list',
+    useLibraryStore.getState().displayMode
+  )
   const dispatch = useBrowseStore((s) => s.dispatch)
 
   const matching = useMemo(
@@ -73,6 +79,7 @@ export function BrowseTrackListView({ dimension, valueKey, label }: Props): Reac
         <span style={{ marginLeft: 'auto', fontSize: '12px', color: '#555' }}>
           {visible.length.toLocaleString()} track{visible.length !== 1 ? 's' : ''}
         </span>
+        <ViewModeToggle mode={displayMode} onChange={setDisplayMode} />
       </div>
 
       <BulkBar

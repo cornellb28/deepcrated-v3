@@ -37,9 +37,9 @@ interface LibraryState {
   displayMode: 'list' | 'grid'
   // Per-view list/grid mode, keyed by an arbitrary viewKey (see
   // useViewMode) — e.g. 'all_tracks', or 'tab:<tabId>' for one of the
-  // track tab bar's tabs. Separate from `displayMode` above: that field is
-  // FolderView's own single global mode (out of scope for this hook — see
-  // useViewMode's comment), left as-is rather than merged in.
+  // track tab bar's tabs. `displayMode` above is the old single shared mode;
+  // nothing sets it any more, and Folders, tag pages and Browse lists only
+  // read it as their starting value before their own useViewMode choice.
   viewModes: Record<string, 'list' | 'grid'>
   tags: Tag[]
   quickTags: Tag[]
