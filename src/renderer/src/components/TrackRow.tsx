@@ -5,6 +5,7 @@ import { Badge } from '@renderer/components/ui/badge'
 import { Checkbox } from '@renderer/components/ui/checkbox'
 import { useArtworkUrl } from '../hooks/useArtworkUrl'
 import { TrackRowMenu } from './TrackRowMenu'
+import { Bpm } from './Bpm'
 import { StagePill } from './StagePill'
 import { TagBadge } from './TagBadge'
 import type { SelectModifiers } from '../lib/selection'
@@ -223,11 +224,7 @@ export function TrackRow({
         flexWrap: 'nowrap',
         flexShrink: 0,
       }}>
-        {track.bpm && (
-          <Badge variant="outline" className="text-[10px] h-5 px-1.5 bg-[#1a2535] text-[#5d9fd8] border-[#1a2535] font-mono">
-            {track.bpm}
-          </Badge>
-        )}
+        <Bpm size="row" value={track.bpm} />
         {track.key_camelot && (
           <Badge variant="outline" className="text-[10px] h-5 px-1.5 bg-[#1a2830] text-[#3db88a] border-[#1a2830] font-mono">
             {track.key_camelot}

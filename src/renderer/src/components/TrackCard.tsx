@@ -20,6 +20,7 @@ import {
 import type { SelectModifiers } from '../lib/selection'
 import { StagePill } from './StagePill'
 import { TagBadge } from './TagBadge'
+import { Bpm } from './Bpm'
 
 // Two fits beside the board pill and the crate count at three columns
 // without any of them being squeezed to an ellipsis. The rest become "+N",
@@ -274,9 +275,13 @@ export function TrackCard({
         <div style={{ marginTop: '7px' }}>
           {analysed ? (
             <div style={{ display: 'flex', gap: '6px' }}>
-              {stats.map((stat) => (
-                <StatCell key={stat.label} stat={stat} />
-              ))}
+              {stats.map((stat) =>
+                stat.label === 'BPM' ? (
+                  <Bpm key="bpm" size="compact" value={track.bpm} />
+                ) : (
+                  <StatCell key={stat.label} stat={stat} />
+                )
+              )}
             </div>
           ) : (
             <div

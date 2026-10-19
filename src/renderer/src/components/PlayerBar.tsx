@@ -2,6 +2,7 @@ import React, { useRef, useEffect } from 'react'
 import { usePlayerStore } from '../store/usePlayerStore'
 import { useLibraryStore } from '../store/useLibraryStore'
 import { Slider } from '@renderer/components/ui/slider'
+import { Bpm } from './Bpm'
 
 const BAR_COUNT = 120
 
@@ -238,7 +239,14 @@ export function PlayerBar(): React.JSX.Element | null {
         >
           {currentTrack.artist ?? ''}
           {currentTrack.format ? ` · ${currentTrack.format}` : ''}
-          {currentTrack.bpm ? ` · ${currentTrack.bpm} BPM` : ''}
+          {currentTrack.bpm ? (
+            <>
+              {' · '}
+              <Bpm size="row" value={currentTrack.bpm} />
+            </>
+          ) : (
+            ''
+          )}
           {currentTrack.key_camelot ? ` · ${currentTrack.key_camelot}` : ''}
         </div>
       </div>

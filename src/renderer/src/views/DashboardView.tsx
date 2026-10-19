@@ -6,6 +6,7 @@ import { HealthSection } from '../components/HealthSection'
 import { BrowseCard } from '../components/BrowseCard'
 import { BROWSE_CARD_COLORS } from '../lib/browse/cardStyle'
 import { TagBadge } from '../components/TagBadge'
+import { Bpm } from '../components/Bpm'
 
 
 interface DashboardStats {
@@ -486,16 +487,7 @@ function RecentTrackRow({
 
       {/* Badges */}
       <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
-        {track.bpm && (
-          <Badge variant="outline" style={{
-            fontSize: '10px',
-            background: '#1a2535',
-            color: '#5d9fd8',
-            borderColor: '#1a2535',
-          }}>
-            {track.bpm}
-          </Badge>
-        )}
+        <Bpm size="row" value={track.bpm} />
         {track.key_camelot && (
           <Badge variant="outline" style={{
             fontSize: '10px',

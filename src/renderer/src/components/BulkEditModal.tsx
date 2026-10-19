@@ -9,6 +9,7 @@ import { useLibraryStore } from '../store/useLibraryStore'
 import { useArtworkUrl } from '../hooks/useArtworkUrl'
 import { fieldToMetaKey, joinTagValues, withTrackIdentity } from '../lib/tagMeta'
 import { StagePill } from './StagePill'
+import { Bpm } from './Bpm'
 import { reanalyzeTrack } from '../lib/reanalyze'
 import { flushStageWrites } from '../lib/stageCommit'
 import { STAGE_NOUN } from '../lib/stages'
@@ -619,19 +620,6 @@ export function BulkEditModal({
                         : 'Analyze BPM + key'}
                 </button>
               )}
-              {currentTrack.bpm && (
-                <Badge
-                  variant="outline"
-                  style={{
-                    fontSize: '10px',
-                    background: '#1a2535',
-                    color: '#5d9fd8',
-                    borderColor: '#1a2535'
-                  }}
-                >
-                  {currentTrack.bpm} BPM
-                </Badge>
-              )}
               {currentTrack.key_camelot && (
                 <Badge
                   variant="outline"
@@ -662,6 +650,22 @@ export function BulkEditModal({
                 </Badge>
               )}
             </div>
+          </div>
+
+          {/* The tempo, at hero size. Read-only: BPM is measured (Analyze),
+              never typed here. The slot leaves room beside the number for
+              tempo controls (tap tempo) to come. */}
+          <div
+            data-slot="bpm-controls"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+              flexShrink: 0,
+              paddingLeft: '8px'
+            }}
+          >
+            <Bpm size="modal" value={currentTrack.bpm} busy={analyzing} testId="edit-modal-bpm" />
           </div>
         </div>
 

@@ -14,6 +14,7 @@ import dclogo from '@renderer/assets/crateIcon.png'
 import { fullTrackMeta } from '../lib/tagMeta'
 import { refreshArtists } from '../lib/refreshArtists'
 import { RelatedTracks } from './RelatedTracks'
+import { Bpm } from './Bpm'
 import { notifyTrackSaved } from '../lib/trackEvents'
 
 const CAMELOT_KEYS = [
@@ -385,7 +386,12 @@ export function Inspector(): React.JSX.Element {
             </div>
 
             {/* Now inspecting: always visible while the fields below scroll. */}
-            <div data-testid="inspector-now" style={{ minWidth: 0, textAlign: 'center' }}>
+            {/* Now inspecting, with the tempo beside it: the first thing the eye
+                lands on. Both stay visible while the fields below scroll. */}
+            <div
+              style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}
+            >
+            <div data-testid="inspector-now" style={{ minWidth: 0, flex: 1 }}>
               <div
                 title={track.title ?? undefined}
                 style={{
@@ -412,6 +418,16 @@ export function Inspector(): React.JSX.Element {
               >
                 {track.artist || 'Unknown artist'}
               </div>
+            </div>
+            <Bpm
+              key={`bpm-${track.id}-${track.bpm}`}
+              size="inspector"
+              value={track.bpm}
+              editable
+              busy={analyzing}
+              onChange={(v) => saveField('bpm', v)}
+              testId="inspector-field-bpm"
+            />
             </div>
 
             <Separator className="bg-[#1e1e2a]" />
@@ -465,38 +481,6 @@ export function Inspector(): React.JSX.Element {
               <TagInput trackId={track.id} field="label" label="Label" color="#378add" />
               <TagInput trackId={track.id} field="composer" label="Composer" color="#ba7517" />
               <TagInput trackId={track.id} field="album" label="Album" color="#888780" />
-
-              {/* BPM */}
-              <div>
-                <label className="text-[10px] font-medium tracking-widest uppercase text-muted-foreground">
-                  BPM
-                </label>
-                <div style={{ position: 'relative' }}>
-                  <Input
-                    key={`bpm-${track.id}-${track.bpm}`}
-                    data-testid="inspector-field-bpm"
-                    defaultValue={track.bpm?.toString() ?? ''}
-                    disabled={analyzing}
-                    placeholder={analyzing ? 'Detecting...' : ''}
-                    onBlur={(e) => saveField('bpm', e.target.value)}
-                    onKeyDown={(e) => onKeyDown(e, 'bpm')}
-                    onFocus={(e) => e.target.select()}
-                    className="h-7 text-xs font-mono bg-[#1a1a26] border-[#252535] text-[#c0c0d8] focus-visible:ring-[#7f77dd] pr-8"
-                  />
-                  {analyzing && (
-                    <span style={{
-                      position: 'absolute',
-                      right: '8px',
-                      top: '50%',
-                      transform: 'translateY(-50%)',
-                      fontSize: '12px',
-                      color: '#7f77dd',
-                    }}>
-                      ⟳
-                    </span>
-                  )}
-                </div>
-              </div>
 
               {/* Key */}
               <div>
