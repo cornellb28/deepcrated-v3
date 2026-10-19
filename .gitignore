@@ -20,3 +20,7 @@ playwright-report
 backups/
 delimiter-dry-run.json
 delimiter-dry-run.csv
+
+# Python bytecode (the sidecar venv writes these on every import)
+__pycache__/
+*.pyc
