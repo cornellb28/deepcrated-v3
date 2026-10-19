@@ -3,6 +3,7 @@ import { usePlayerStore } from '../store/usePlayerStore'
 import { useLibraryStore } from '../store/useLibraryStore'
 import { Slider } from '@renderer/components/ui/slider'
 import { Bpm } from './Bpm'
+import { isTypingTarget, matchesShortcut, useTapTempoStore } from '../lib/shortcuts'
 
 const BAR_COUNT = 120
 
@@ -93,11 +94,12 @@ export function PlayerBar(): React.JSX.Element | null {
     const onKeyDown = (e: KeyboardEvent): void => {
       if (e.defaultPrevented) return
       if (!currentTrack) return
-      const target = e.target as HTMLElement | null
-      const inInput = !!target && target.closest('input, textarea, [contenteditable]') != null
-      if (inInput) return
+      if (isTypingTarget(e.target)) return
 
-      if (e.key === ' ') {
+      if (matchesShortcut(e, 'playPause')) {
+        // Tap tempo armed in the edit modal owns Space; it handles the press
+        // first, but this holds even if that listener ever runs second.
+        if (useTapTempoStore.getState().armed) return
         e.preventDefault()
         togglePlayPause()
       } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
@@ -210,7 +212,13 @@ export function PlayerBar(): React.JSX.Element | null {
         >
           {isPlaying ? '⏸' : '▶'}
         </button>
-        <button onClick={playNext} disabled={!hasNext} title="Next track" aria-label="Next track" style={playerBtnStyle(hasNext)}>
+        <button
+          onClick={playNext}
+          disabled={!hasNext}
+          title="Next track"
+          aria-label="Next track"
+          style={playerBtnStyle(hasNext)}
+        >
           ⏭
         </button>
       </div>

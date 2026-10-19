@@ -9,7 +9,7 @@ import { useLibraryStore } from '../store/useLibraryStore'
 import { useArtworkUrl } from '../hooks/useArtworkUrl'
 import { fieldToMetaKey, joinTagValues, withTrackIdentity } from '../lib/tagMeta'
 import { StagePill } from './StagePill'
-import { Bpm } from './Bpm'
+import { TapTempo } from './TapTempo'
 import { reanalyzeTrack } from '../lib/reanalyze'
 import { flushStageWrites } from '../lib/stageCommit'
 import { STAGE_NOUN } from '../lib/stages'
@@ -78,6 +78,11 @@ export function BulkEditModal({
   // and reported once at the end rather than one popup per track.
   const skippedFileWrites = useRef<Set<number>>(new Set())
 
+  // A tempo tapped in but not saved yet. Kept apart from textValues on
+  // purpose: those autosave, and a tapped tempo only saves on "Save BPM".
+  // Dropped when the track changes or the modal closes.
+  const [tapDraft, setTapDraft] = useState<number | null>(null)
+
   // Reset volatile state when the modal transitions to open, and clear typed
   // values whenever the displayed track changes — both adjusted during
   // render (https://react.dev/learn/you-might-not-need-an-effect) rather
@@ -92,6 +97,7 @@ export function BulkEditModal({
       setSavedIds(new Set())
       setSaveState('idle')
       setSaving(false)
+      setTapDraft(null)
     }
   }
 
@@ -103,6 +109,7 @@ export function BulkEditModal({
   if (currentTrackId !== lastTrackId) {
     setLastTrackId(currentTrackId)
     setTextValues({})
+    setTapDraft(null)
   }
 
   const isFirst = currentIndex === 0
@@ -178,18 +185,25 @@ export function BulkEditModal({
     })
   }
 
-  // textValues holds raw input strings. Only 'year' reaches here now that
-  // BPM and key are measured rather than typed — the numeric coercion that
-  // used to live here went with the BPM input.
-  function columnValue(_field: string, raw: string): string | null {
+  // textValues holds raw input strings: 'year', plus 'bpm' when a tapped
+  // tempo is saved (see saveTappedBpm), which is stored as a number.
+  function columnValue(field: string, raw: string): string | number | null {
+    if (field === 'bpm') return parseFloat(raw) || null
     return raw || null
   }
 
   // Autosave calls this with bulk: false — a DJ pausing mid-type must not
   // trigger a write across fifty files. The explicit "Apply to all" button
   // is the only thing that passes bulk: true.
-  async function save(options: { bulk: boolean } = { bulk: false }): Promise<void> {
-    if (!currentTrack || saving) return
+  //
+  // `extra` adds fields typed elsewhere than textValues for this one save —
+  // only the tapped BPM, saved for this track alone (never bulk).
+  async function save(
+    options: { bulk: boolean } = { bulk: false },
+    extra: Record<string, string> = {}
+  ): Promise<boolean> {
+    if (!currentTrack || saving) return false
+    const values = { ...textValues, ...extra }
     setSaving(true)
     setSaveState('saving')
     skippedFileWrites.current = new Set()
@@ -202,7 +216,7 @@ export function BulkEditModal({
       const columns: Record<string, unknown> = {}
       const meta: EditTagsMeta = {}
       for (const field of fields) {
-        const value = columnValue(field, textValues[field])
+        const value = columnValue(field, values[field])
         columns[field] = value
         meta[fieldToMetaKey(field)] = (value ?? '') as never
       }
@@ -214,9 +228,10 @@ export function BulkEditModal({
 
     try {
       // This track: every text field that was actually typed into.
-      const editedFields = EDITABLE_TEXT_FIELDS.filter(
-        (field) => textValues[field] !== undefined
-      )
+      const editedFields = [
+        ...EDITABLE_TEXT_FIELDS.filter((field) => textValues[field] !== undefined),
+        ...Object.keys(extra)
+      ]
       if (editedFields.length > 0) applyToTrack(currentTrack, editedFields)
 
       // Every other selected track: only the fields whose checkbox is on.
@@ -286,7 +301,7 @@ export function BulkEditModal({
           if (!result.ok) {
             setSaveState('error')
             toast.error('Could not save stage', { description: result.error ?? 'Unknown error' })
-            return
+            return false
           }
           savedNow.add(trackId)
         }
@@ -297,7 +312,7 @@ export function BulkEditModal({
         if (!result.ok) {
           setSaveState('error')
           toast.error('Could not save changes', { description: result.error ?? 'Unknown error' })
-          return
+          return false
         }
       }
 
@@ -308,7 +323,7 @@ export function BulkEditModal({
           console.error('[BulkEditModal] editTagsBatch failed:', err)
           setSaveState('error')
           toast.error('Could not save to files', { description: (err as Error).message })
-          return
+          return false
         }
       }
 
@@ -332,9 +347,17 @@ export function BulkEditModal({
       }
       setTextValues({})
       setSaveState('saved')
+      return true
     } finally {
       setSaving(false)
     }
+  }
+
+  // "Save BPM" beside the tap tempo: the same save as every other field, for
+  // this track only, and only when asked.
+  async function saveTappedBpm(bpm: number): Promise<void> {
+    const ok = await save({ bulk: false }, { bpm: String(bpm) })
+    if (ok) setTapDraft(null)
   }
 
   // A file that is not on disk cannot be measured, so the button says that
@@ -652,9 +675,9 @@ export function BulkEditModal({
             </div>
           </div>
 
-          {/* The tempo, at hero size. Read-only: BPM is measured (Analyze),
-              never typed here. The slot leaves room beside the number for
-              tempo controls (tap tempo) to come. */}
+          {/* The tempo, at hero size, with tap tempo beside it. BPM is never
+              typed here: it is measured (Analyze) or tapped, and a tapped
+              tempo saves only on "Save BPM". */}
           <div
             data-slot="bpm-controls"
             style={{
@@ -665,7 +688,15 @@ export function BulkEditModal({
               paddingLeft: '8px'
             }}
           >
-            <Bpm size="modal" value={currentTrack.bpm} busy={analyzing} testId="edit-modal-bpm" />
+            <TapTempo
+              key={currentTrack.id}
+              storedBpm={currentTrack.bpm}
+              draft={tapDraft}
+              onDraft={setTapDraft}
+              onSave={(bpm) => void saveTappedBpm(bpm)}
+              saving={saving}
+              analyzing={analyzing}
+            />
           </div>
         </div>
 
@@ -687,13 +718,13 @@ export function BulkEditModal({
           >
             {isBulk && (
               <div style={{ marginBottom: '4px' }}>
-                Tick a field to apply it to all {bulkCount} selected tracks. Unticked fields
-                only change this one.
+                Tick a field to apply it to all {bulkCount} selected tracks. Unticked fields only
+                change this one.
               </div>
             )}
             <div style={{ color: '#55556a' }}>
-              Tag badges save as you add them. BPM, key and year save when you press one of
-              the save buttons.
+              Tag badges save as you add them. BPM, key and year save when you press one of the save
+              buttons.
             </div>
           </div>
 
@@ -977,7 +1008,11 @@ function FieldRow({
 // Replaces the Save buttons. It has to answer one question — "did that land?"
 // — without stealing attention while a DJ is typing, so idle is near-silent
 // and only the moments worth noticing get colour.
-function SaveIndicator({ state }: { state: 'idle' | 'saving' | 'saved' | 'error' }): React.JSX.Element | null {
+function SaveIndicator({
+  state
+}: {
+  state: 'idle' | 'saving' | 'saved' | 'error'
+}): React.JSX.Element | null {
   if (state === 'idle') return null
 
   const { text, color } =
@@ -1006,5 +1041,3 @@ function SaveIndicator({ state }: { state: 'idle' | 'saving' | 'saved' | 'error'
     </span>
   )
 }
-
-
