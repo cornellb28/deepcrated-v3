@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState } from 'react'
 import { toast } from 'sonner'
-import { Pencil } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Pencil } from 'lucide-react'
 import { useLibraryStore } from '../store/useLibraryStore'
 import { Slider } from '@renderer/components/ui/slider'
 import { Separator } from '@renderer/components/ui/separator'
@@ -233,68 +233,59 @@ export function Inspector(): React.JSX.Element {
             flexShrink: 0,
           }}>
 
-            {/* Nav row */}
+            {/* Nav row: previous / position / next centred, close on the
+                right. The ↑/↓ keys still move between tracks. */}
             <div style={{
-              display: 'flex',
+              display: 'grid',
+              gridTemplateColumns: '28px 1fr 28px',
               alignItems: 'center',
-              justifyContent: 'space-between',
             }}>
-              {/* Prev */}
-              <button
-                onClick={() => prevTrack && setActiveTrack(prevTrack.id)}
-                disabled={!prevTrack}
-                title="Previous track (↑)"
-                aria-label="Previous track"
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  color: prevTrack ? '#7f77dd' : '#2a2a3a',
-                  cursor: prevTrack ? 'pointer' : 'default',
-                  fontSize: '16px',
-                  padding: '2px 6px',
-                  lineHeight: 1,
-                  borderRadius: '4px',
-                }}
-              >
-                ↑
-              </button>
-
-              {/* Position */}
-              <span style={{ fontSize: '10px', color: '#333' }}>
-                {currentIndex >= 0 ? `${currentIndex + 1} / ${tracks.length}` : ''}
-              </span>
-
-              {/* Next */}
-              <button
-                onClick={() => nextTrack && setActiveTrack(nextTrack.id)}
-                disabled={!nextTrack}
-                title="Next track (↓)"
-                aria-label="Next track"
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  color: nextTrack ? '#7f77dd' : '#2a2a3a',
-                  cursor: nextTrack ? 'pointer' : 'default',
-                  fontSize: '16px',
-                  padding: '2px 6px',
-                  lineHeight: 1,
-                  borderRadius: '4px',
-                }}
-              >
-                ↓
-              </button>
-
-              {/* Close */}
+              <span />
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '6px',
+              }}>
+                <button
+                  onClick={() => prevTrack && setActiveTrack(prevTrack.id)}
+                  disabled={!prevTrack}
+                  title="Previous track (↑)"
+                  aria-label="Previous track"
+                  style={navButtonStyle(!!prevTrack)}
+                >
+                  <ChevronLeft size={18} />
+                </button>
+                <span style={{
+                  fontSize: '11px',
+                  color: '#e8e8f0',
+                  fontVariantNumeric: 'tabular-nums',
+                  minWidth: '64px',
+                  textAlign: 'center',
+                }}>
+                  {currentIndex >= 0 ? `${currentIndex + 1} / ${tracks.length}` : ''}
+                </span>
+                <button
+                  onClick={() => nextTrack && setActiveTrack(nextTrack.id)}
+                  disabled={!nextTrack}
+                  title="Next track (↓)"
+                  aria-label="Next track"
+                  style={navButtonStyle(!!nextTrack)}
+                >
+                  <ChevronRight size={18} />
+                </button>
+              </div>
               <button
                 onClick={() => setActiveTrack(null)}
                 title="Close (Esc)"
                 aria-label="Close track inspector"
                 style={{
+                  justifySelf: 'end',
                   background: 'none',
                   border: 'none',
-                  color: '#444',
+                  color: '#c0c0d8',
                   cursor: 'pointer',
-                  fontSize: '16px',
+                  fontSize: '14px',
                   padding: '2px 4px',
                   lineHeight: 1,
                   borderRadius: '4px'
@@ -722,4 +713,23 @@ function ReadField({
       <span style={{ fontSize: '12px', color: '#c0c0d8' }}>{value}</span>
     </div>
   )
+}
+
+// ─── Nav buttons ──────────────────────────────────────────
+
+// Wide hit area, white when there is somewhere to go.
+function navButtonStyle(enabled: boolean): React.CSSProperties {
+  return {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '40px',
+    height: '24px',
+    background: enabled ? '#1a1a26' : 'none',
+    border: `0.5px solid ${enabled ? '#2a2a3a' : 'transparent'}`,
+    borderRadius: '6px',
+    color: enabled ? '#e8e8f0' : '#3a3a4a',
+    cursor: enabled ? 'pointer' : 'default',
+    padding: 0,
+  }
 }
