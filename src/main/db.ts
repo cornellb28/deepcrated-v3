@@ -2432,6 +2432,15 @@ export function getMissingTracks(rootId?: number): MissingTrackCandidate[] {
 // already exists, so ensureFolderTree's own emit never fires for it, and
 // folderCounts would otherwise go stale on exactly the folders reconcile
 // just repopulated.
+//
+// TODO(combos): a relink keeps the row id, so a track's combos survive it.
+// When a relink or a merge ever connects a NEW track row to an old missing
+// one (a file moved while the watcher was off can come back as a new row; a
+// duplicates "merge" in Crate Health would do the same), carry the combos of
+// the row going away over to the surviving row before deleting it, in the
+// same transaction. track_combos cascades on delete, so otherwise they are
+// lost. Merge duplicates a pair would create (blend is stored once, in id
+// order).
 export function relinkTrack(trackId: number, newPath: string): RunResult {
   const result = db
     .prepare(
