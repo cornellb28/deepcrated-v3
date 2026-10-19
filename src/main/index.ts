@@ -131,6 +131,7 @@ import {
 import { checkBuildStatus } from './staleBuild'
 import { classifyFolder } from './rootCoverage'
 import { analysisUpdate } from './analysisUpdate'
+import { findCombos } from './comboService'
 import {
   getRelatedTracks,
   loadMixProfile,
@@ -3432,6 +3433,10 @@ app.whenReady().then(() => {
     return getRelatedTracks(trackId, dir)
   })
   ipcMain.handle('match:preview', (_e, profileDraft: unknown) => previewRelated(profileDraft))
+  // Find combos: ranked by key, BPM and the DJ's energy goal (comboService).
+  ipcMain.handle('combos:find', (_e, trackId: unknown, settings: unknown) =>
+    typeof trackId === 'number' ? findCombos(trackId, settings) : { status: 'not-found' }
+  )
   ipcMain.handle('match:tag-types-in-use', () => tagTypesInUse())
 
   ipcMain.handle('settings:get', (_e, key: string) =>

@@ -1,6 +1,31 @@
 export {}
 
 declare global {
+  type ComboItem = import('../../../shared/combos').ComboResult & {
+    title: string | null
+    artist: string | null
+    bpm: number | null
+    key_camelot: string | null
+    energy: number | null
+    artwork_hash: string | null
+  }
+  type CombosResponse =
+    | { status: 'not-found' }
+    | {
+        status: 'ok'
+        settings: import('../../../shared/combos').ComboSettings
+        source: {
+          id: number
+          title: string | null
+          bpm: number | null
+          key_camelot: string | null
+          energy: number | null
+          missing: string[]
+        }
+        results: ComboItem[]
+        considered: number
+      }
+
   type FolderCoverage =
     | { status: 'new' }
     | { status: 'watched'; root: { id: number; name: string; path: string }; isRoot: boolean }
@@ -326,6 +351,12 @@ declare global {
         tagTypesInUse: () => Promise<
           ('genre' | 'grouping' | 'label' | 'remixer' | 'comment' | 'composer' | 'vibe' | 'venue' | 'custom')[]
         >
+      }
+      combos: {
+        find: (
+          trackId: number,
+          settings: import('../../../shared/combos').ComboSettings
+        ) => Promise<CombosResponse>
       }
       settings: {
         get: (key: string) => Promise<string | null>

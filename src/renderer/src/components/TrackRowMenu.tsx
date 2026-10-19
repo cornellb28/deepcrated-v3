@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import ReactDOM from 'react-dom'
 import { toast } from 'sonner'
-import { MoreVertical, Library, Trash2, FolderPlus, FolderMinus, Tag, Image as ImageIcon, EyeOff } from 'lucide-react'
+import { MoreVertical, Library, Trash2, FolderPlus, FolderMinus, Tag, Image as ImageIcon, EyeOff, Shuffle } from 'lucide-react'
 import { useLibraryStore } from '../store/useLibraryStore'
 import { usePlayerStore } from '../store/usePlayerStore'
 import { DeleteFileConfirmDialog } from './DeleteFileConfirmDialog'
@@ -9,6 +9,7 @@ import { CratePickerModal } from './CratePickerModal'
 import { BulkEditModal } from './BulkEditModal'
 import { MoveToModal } from './MoveToModal'
 import { reanalyzeTrack } from '../lib/reanalyze'
+import { useCombosStore } from '../store/useCombosStore'
 
 interface TrackRowMenuProps {
   track: Track
@@ -118,6 +119,7 @@ export function TrackRowMenu({ track, crateId }: TrackRowMenuProps): React.JSX.E
 
   const handlePlay = act(() => playTrack(track))
   const handleOpenInspector = act(() => setActiveTrack(track.id))
+  const handleFindCombos = act(() => useCombosStore.getState().show(track.id))
   // Awaited and reported. It used to be fire-and-forget with an optional
   // call (`showInFolder?.()`), so a rejected invoke — which is exactly what
   // the channel mismatch produced — vanished into an unhandled rejection and
@@ -230,6 +232,9 @@ export function TrackRowMenu({ track, crateId }: TrackRowMenuProps): React.JSX.E
       )}
       <MenuItem onClick={handleOpenInspector} icon="✎">
         Open in Inspector
+      </MenuItem>
+      <MenuItem onClick={handleFindCombos} icon={<Shuffle size={14} />}>
+        Find combos
       </MenuItem>
       {/* The same modal the BulkBar opens, scoped to this one track — so
           "set the genre on this" is reachable without first selecting it. */}

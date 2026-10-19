@@ -394,6 +394,10 @@ const api = {
     preview: (profileDraft: unknown) => ipcRenderer.invoke('match:preview', profileDraft),
     tagTypesInUse: () => ipcRenderer.invoke('match:tag-types-in-use')
   },
+  combos: {
+    find: (trackId: number, settings: unknown) =>
+      ipcRenderer.invoke('combos:find', trackId, settings)
+  },
   settings: {
     get: (key: string) => ipcRenderer.invoke('settings:get', key),
     set: (key: string, value: string) => ipcRenderer.invoke('settings:set', key, value),

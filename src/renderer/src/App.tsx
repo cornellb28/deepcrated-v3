@@ -31,6 +31,7 @@ import { LAST_VIEW_KEY, restoreView, isRestorable } from './lib/lastView'
 import { StaleBuildBanner } from './components/StaleBuildBanner'
 import { useFileDrop } from './hooks/useFileDrop'
 import { AlreadyWatchedDialog, type WatchedAlertItem } from './components/AlreadyWatchedDialog'
+import { CombosDialog } from './components/CombosDialog'
 
 const COLLAPSE_THRESHOLD = 900 // px
 const FOLDERS_REFETCH_DEBOUNCE_MS = 300
@@ -1077,6 +1078,7 @@ function App(): React.JSX.Element {
         }}
       />
       <MixProfilePrompt />
+      <CombosDialog />
       <AlreadyWatchedDialog
         items={watchedAlert}
         onClose={() => setWatchedAlert(null)}

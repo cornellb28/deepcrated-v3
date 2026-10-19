@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { FolderPlus, Pause, Play, Plus } from 'lucide-react'
+import { FolderPlus, Pause, Play, Plus, Shuffle } from 'lucide-react'
 import { useArtworkUrl } from '../hooks/useArtworkUrl'
 import { useLibraryStore } from '../store/useLibraryStore'
 import { usePlayerStore } from '../store/usePlayerStore'
 import { useMatchStore } from '../store/useMatchStore'
 import { onTrackSavedDebounced } from '../lib/trackEvents'
 import { CratePickerModal } from './CratePickerModal'
+import { useCombosStore } from '../store/useCombosStore'
 
 // Inspector > Related: the best next tracks for this one, scored by Track
 // Match against the DJ's Mix Profile (main/trackMatchService.ts). Re-ranks
@@ -125,6 +126,24 @@ export function RelatedTracks({ trackId }: { trackId: number }): React.JSX.Eleme
           >
             Related
           </div>
+          <button
+            type="button"
+            data-testid="related-find-combos"
+            title="Find combos: every match, with your energy goal and the reasons"
+            aria-label="Find combos for this track"
+            onClick={() => useCombosStore.getState().show(trackId)}
+            style={{
+              background: 'none',
+              border: 'none',
+              padding: '2px',
+              color: '#7f77dd',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center'
+            }}
+          >
+            <Shuffle size={13} />
+          </button>
           {items.length > 0 && (
             <button
               type="button"

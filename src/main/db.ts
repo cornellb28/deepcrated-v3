@@ -2919,6 +2919,69 @@ export function getMatchCandidates(
     .all(params) as MatchCandidateRow[]
 }
 
+// Find combos (main/comboService.ts): like getMatchCandidates, but a track
+// missing its BPM or key is kept when the other one fits, so it can be shown
+// as a partial match instead of silently left out. One indexed-friendly
+// query; scoring happens on this capped set only.
+export function getComboCandidates(
+  sourceId: number,
+  sourceBpm: number | null,
+  bpmRanges: [number, number][],
+  keys: string[] | null,
+  limit: number
+): MatchCandidateRow[] {
+  const params: Record<string, number | string> = { id: sourceId, s: sourceBpm ?? 0 }
+  const noBpm = '(bpm IS NULL OR bpm <= 0)'
+  const noKey = "(key_camelot IS NULL OR TRIM(key_camelot) = '')"
+  bpmRanges.forEach(([lo, hi], i) => {
+    params[`lo${i}`] = lo
+    params[`hi${i}`] = hi
+  })
+  ;(keys ?? []).forEach((k, i) => {
+    params[`k${i}`] = k
+  })
+  const bpmOk =
+    sourceBpm && bpmRanges.length > 0
+      ? `(${bpmRanges.map((_, i) => `bpm BETWEEN @lo${i} AND @hi${i}`).join(' OR ')} OR ${noBpm})`
+      : '1'
+  const keyOk =
+    keys && keys.length > 0
+      ? `(key_camelot IN (${keys.map((_, i) => `@k${i}`).join(',')}) OR ${noKey})`
+      : '1'
+  const order = sourceBpm
+    ? `CASE WHEN ${noBpm} THEN 1 ELSE 0 END,
+       MIN(ABS(bpm - @s), ABS(bpm * 2 - @s), ABS(bpm / 2 - @s))`
+    : `CASE WHEN ${noKey} THEN 1 ELSE 0 END`
+  return db
+    .prepare(
+      `SELECT ${MATCH_COLUMNS} FROM tracks
+       WHERE missing = 0 AND id <> @id AND ${bpmOk} AND ${keyOk}
+         AND NOT (${noBpm} AND ${noKey})
+       ORDER BY ${order}, id
+       LIMIT ${Math.max(1, Math.floor(limit))}`
+    )
+    .all(params) as MatchCandidateRow[]
+}
+
+// Crates each track is in, for the "shared crate" bonus.
+export function getCrateIdsForTracks(ids: readonly number[]): Map<number, number[]> {
+  const out = new Map<number, number[]>()
+  for (let i = 0; i < ids.length; i += 900) {
+    const chunk = ids.slice(i, i + 900)
+    const rows = db
+      .prepare(
+        `SELECT track_id, crate_id FROM crate_tracks WHERE track_id IN (${chunk.map(() => '?').join(',')})`
+      )
+      .all(...chunk) as { track_id: number; crate_id: number }[]
+    for (const r of rows) {
+      const list = out.get(r.track_id)
+      if (list) list.push(r.crate_id)
+      else out.set(r.track_id, [r.crate_id])
+    }
+  }
+  return out
+}
+
 // A track to preview suggestions from (the survey's last screen): one with a
 // Camelot key and a BPM, preferring the most tag data, then the newest.
 export function getMatchPreviewTrackId(): number | null {
