@@ -30,6 +30,7 @@ import { AccountChip } from './components/AccountChip'
 import { LAST_VIEW_KEY, restoreView, isRestorable } from './lib/lastView'
 import { StaleBuildBanner } from './components/StaleBuildBanner'
 import { useFileDrop } from './hooks/useFileDrop'
+import { AlreadyWatchedDialog, type WatchedAlertItem } from './components/AlreadyWatchedDialog'
 
 const COLLAPSE_THRESHOLD = 900 // px
 const FOLDERS_REFETCH_DEBOUNCE_MS = 300
@@ -77,6 +78,9 @@ function App(): React.JSX.Element {
   const [auth, setAuth] = useState<AuthState | null>(null)
   // Add library roots to app state
   const [libraryRoots, setLibraryRoots] = useState<LibraryRoot[]>([])
+  // Folders picked or dropped for import that are already watched (or hold
+  // watched folders): shown in an alert instead of being imported again.
+  const [watchedAlert, setWatchedAlert] = useState<WatchedAlertItem[] | null>(null)
   const [reconcileOpen, setReconcileOpen] = useState(false)
   // A stack, not one tag: the Tags page narrows by adding tags on top of
   // each other. Empty means the tag cloud is showing instead.
@@ -613,6 +617,11 @@ function App(): React.JSX.Element {
   // in main/serato/seratoImport.ts. No Serato library found just imports
   // immediately, same as before this existed.
   async function handleImportFolder(folderPath: string): Promise<void> {
+    const coverage = await window.api.checkFolder(folderPath)
+    if (coverage.status !== 'new') {
+      setWatchedAlert([{ path: folderPath, coverage }])
+      return
+    }
     const detection = await window.api.detectSeratoForFolder(folderPath)
     if (detection.found && detection.seratoDir) {
       setSeratoImportPrompt({ folderPath, seratoDir: detection.seratoDir })
@@ -679,8 +688,16 @@ function App(): React.JSX.Element {
     const audioFiles = classified.filter((c) => c.kind === 'audio').map((c) => c.path)
     const skipped = classified.filter((c) => c.kind === 'other').map((c) => c.path)
 
+    // Already-watched folders are not imported again; they are listed in
+    // one alert at the end, and the rest import as usual.
+    const blocked: WatchedAlertItem[] = []
     setAnalyzing(true)
     for (const dir of dirs) {
+      const coverage = await window.api.checkFolder(dir)
+      if (coverage.status !== 'new') {
+        blocked.push({ path: dir, coverage })
+        continue
+      }
       const result = await window.api.importFolder(dir)
       if (!result.ok && result.error) {
         toast.error(result.error)
@@ -711,6 +728,7 @@ function App(): React.JSX.Element {
     setFolderData(tree, counts)
 
     setAnalyzing(false)
+    if (blocked.length > 0) setWatchedAlert(blocked)
 
     if (skipped.length > 0) {
       toast.warning(
@@ -734,6 +752,25 @@ function App(): React.JSX.Element {
   // still only ever happens inside FolderView (via its own navStack) —
   // this just switches tabs and leaves the folder id for FolderView's
   // pendingFolderNav effect to pick up.
+  // "Re-scan now" from the already-watched alert: the same quick rescan the
+  // Folders view's button runs (only changed files are re-read).
+  async function rescanWatchedFolder(folderPath: string): Promise<void> {
+    setAnalyzing(true)
+    const result = await window.api.importFolder(folderPath, false, true)
+    if (result.ok) {
+      setTracks(await window.api.db.allTracks())
+      const [tree, counts] = await Promise.all([
+        window.api.folders.tree(),
+        window.api.db.folderTrackCounts()
+      ])
+      setFolderData(tree, counts)
+      toast.success('Re-scan finished')
+    } else if (result.error) {
+      toast.error(result.error)
+    }
+    setAnalyzing(false)
+  }
+
   async function navigateToFolderPath(folderPath: string): Promise<void> {
     const tree = await window.api.folders.tree()
     const folder = tree.find((f) => f.path === folderPath)
@@ -1040,6 +1077,12 @@ function App(): React.JSX.Element {
         }}
       />
       <MixProfilePrompt />
+      <AlreadyWatchedDialog
+        items={watchedAlert}
+        onClose={() => setWatchedAlert(null)}
+        onShow={(path) => void navigateToFolderPath(path)}
+        onRescan={(path) => void rescanWatchedFolder(path)}
+      />
       <Toaster />
     </div>
   )

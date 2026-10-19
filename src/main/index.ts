@@ -129,6 +129,7 @@ import {
   type SeratoImportTally
 } from './serato/seratoImport'
 import { checkBuildStatus } from './staleBuild'
+import { classifyFolder } from './rootCoverage'
 import {
   getRelatedTracks,
   loadMixProfile,
@@ -2006,6 +2007,16 @@ app.whenReady().then(() => {
   })
 
   // ── Tracks ──────────────────────────────────────────────
+  // Read-only: is this folder already watched (or a parent of watched
+  // folders)? Asked by the Import button, the dropzone and drag-and-drop
+  // before importing, so an already-watched folder gets an alert instead of a
+  // silent re-import. Re-scan from the Folders view does not ask.
+  ipcMain.handle('library:check-folder', (_e, folderPath: unknown) =>
+    typeof folderPath === 'string'
+      ? classifyFolder(folderPath, getAllRoots())
+      : { status: 'new' as const }
+  )
+
   ipcMain.handle(
     'library:import-folder',
     async (event, folderPath: string, importSeratoData?: boolean, rescan?: boolean) => {

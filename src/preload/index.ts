@@ -180,6 +180,8 @@ const api = {
   onEditTagsProgress: (cb: (p: EditTagsProgressPayload) => void) =>
     ipcRenderer.on('edit-tags:progress', (_e, p) => cb(p)),
   offEditTagsProgress: () => ipcRenderer.removeAllListeners('edit-tags:progress'),
+  // Already watched? Asked before an import; see library:check-folder.
+  checkFolder: (folderPath: string) => ipcRenderer.invoke('library:check-folder', folderPath),
   importFolder: (folderPath: string, importSeratoData?: boolean, rescan?: boolean) =>
     ipcRenderer.invoke('library:import-folder', folderPath, importSeratoData, rescan),
   // Library-wide rescan: walks every registered root and reconciles the DB

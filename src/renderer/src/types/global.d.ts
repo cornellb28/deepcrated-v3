@@ -1,6 +1,11 @@
 export {}
 
 declare global {
+  type FolderCoverage =
+    | { status: 'new' }
+    | { status: 'watched'; root: { id: number; name: string; path: string }; isRoot: boolean }
+    | { status: 'contains'; roots: { id: number; name: string; path: string }[] }
+
   interface Window {
     api: {
       openFolder: () => Promise<string | null>
@@ -35,6 +40,8 @@ declare global {
       onEditTagsProgress: (cb: (p: EditTagsProgressPayload) => void) => void
       offEditTagsProgress: () => void
 
+      // How a folder relates to the watched library folders, before import.
+      checkFolder: (folderPath: string) => Promise<FolderCoverage>
       importFolder: (
         folderPath: string,
         importSeratoData?: boolean,
