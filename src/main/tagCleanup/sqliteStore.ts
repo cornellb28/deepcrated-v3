@@ -13,9 +13,12 @@ import type Database from 'better-sqlite3'
 import { joinValues } from '../tagFields'
 import {
   CLEANUP_FIELDS,
+  type ApplySummary,
+  type BatchInfo,
   type CleanupRules,
   type PlannedChange,
-  type TrackFieldInput
+  type TrackFieldInput,
+  type UndoSummary
 } from '../../shared/tagCleanup'
 
 export interface CleanupTrackRow {
@@ -24,36 +27,6 @@ export interface CleanupTrackRow {
   artist: string | null
   filepath: string
   missing: boolean
-}
-
-export interface ApplySummary {
-  batchId: string
-  dryRun: boolean
-  tracks: number
-  changes: number
-  byField: Record<string, number>
-  tagsCreated: string[] // "field:value"
-  tagsDeleted: string[]
-  files: number // tracks whose file can be written (present, not missing)
-}
-
-export interface BatchInfo {
-  id: string
-  createdAt: number
-  source: 'library' | 'import'
-  status: 'applied' | 'undone'
-  filesStatus: string
-  changes: number
-  filesWritten: number
-  examples: { field: string; before: string | null; after: string[] }[]
-}
-
-export interface UndoSummary {
-  batchId: string
-  dryRun: boolean
-  restored: number
-  skipped: { trackId: number; title: string | null; reason: string }[]
-  filesToRestore: number
 }
 
 export interface FileWrite {
@@ -338,8 +311,9 @@ export function createSqliteTagCleanupStore(db: Database.Database): TagCleanupSt
       if (batch.status !== 'applied') throw new Error('This cleanup was already undone')
 
       const skipped: UndoSummary['skipped'] = []
-      let restored = 0
-      let filesToRestore = 0
+      const restored = new Set<number>() // tracks
+      // Files, not changes: a track's genre and comment are one file.
+      const filesToRestore = new Set<number>()
       const run = db.transaction(() => {
         const changes = db
           .prepare(
@@ -381,8 +355,8 @@ export function createSqliteTagCleanupStore(db: Database.Database): TagCleanupSt
           }
           setExact(c.track_id, c.field, JSON.parse(c.prev_tags), new Set(), c.prev_column)
           db.prepare(`UPDATE tag_cleanup_changes SET restored = 1 WHERE id = ?`).run(c.id)
-          restored++
-          if (c.file_written) filesToRestore++
+          restored.add(c.track_id)
+          if (c.file_written) filesToRestore.add(c.track_id)
         }
         db.prepare(
           `UPDATE tag_cleanup_batches SET status = 'undone', undone_at = strftime('%s','now')
@@ -395,7 +369,13 @@ export function createSqliteTagCleanupStore(db: Database.Database): TagCleanupSt
       } catch (err) {
         if (!(err instanceof Rollback)) throw err
       }
-      return { batchId, dryRun, restored, skipped, filesToRestore }
+      return {
+        batchId,
+        dryRun,
+        restored: restored.size,
+        skipped,
+        filesToRestore: filesToRestore.size
+      }
     },
 
     pendingFileWrites(batchId, limit) {

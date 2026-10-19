@@ -17,6 +17,8 @@ import { Toaster } from './components/ui/sonner'
 import { BackgroundJobsPanel } from './components/BackgroundJobsPanel'
 import { refreshArtists } from './lib/refreshArtists'
 import { useArtistCleanStore } from './store/useArtistCleanStore'
+import { useTagCleanupStore } from './store/useTagCleanupStore'
+import { MetadataCleanupDialog } from './components/MetadataCleanupDialog'
 import { PlayerBar } from './components/PlayerBar'
 import { TagsCloudView } from './views/TagsCloudView'
 import { TagPageView } from './views/TagPageView'
@@ -305,6 +307,22 @@ function App(): React.JSX.Element {
     window.api.artist.onNotice(({ message }) => toast.warning(message))
     window.api.artist.onProgress((p) => useArtistCleanStore.getState().setProgress(p))
     return () => window.api.artist.offEvents()
+  }, [])
+
+  // ── Metadata Cleanup events ───────────────────────────────
+  // Saved split/spelling rules never apply to new imports on their own: main
+  // counts the matches and this asks. File jobs finishing refresh the
+  // cleanup views.
+  useEffect(() => {
+    window.api.tagCleanup.onImportMatches(({ count }) => {
+      toast(`${count} new import${count === 1 ? '' : 's'} match your cleanup rules`, {
+        description: 'Combined tags or spellings your saved rules would change.',
+        action: { label: 'Review', onClick: () => useTagCleanupStore.getState().show('import') },
+        duration: 15000
+      })
+    })
+    window.api.tagCleanup.onFilesDone(() => useTagCleanupStore.getState().changed())
+    return () => window.api.tagCleanup.offEvents()
   }, [])
 
   // ── Keep trackTags complete as tracks arrive ─────────────
@@ -1038,6 +1056,7 @@ function App(): React.JSX.Element {
           if (folderPath) void performImportFolder(folderPath, importSeratoData)
         }}
       />
+      <MetadataCleanupDialog />
       <Toaster />
     </div>
   )

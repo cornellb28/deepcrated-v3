@@ -388,6 +388,29 @@ const api = {
 
   // Artist-name cleanup: the triage inbox and the library re-clean. The
   // renderer asks for decisions to be applied; matching happens in main.
+  // Metadata Cleanup: split combined tag values. Database changes and file
+  // writes are separate calls; see main/tagCleanup/.
+  tagCleanup: {
+    scan: () => ipcRenderer.invoke('tag-cleanup:scan'),
+    plan: (choices: unknown) => ipcRenderer.invoke('tag-cleanup:plan', choices),
+    apply: (req: unknown) => ipcRenderer.invoke('tag-cleanup:apply', req),
+    batches: () => ipcRenderer.invoke('tag-cleanup:batches'),
+    undo: (batchId: string, dryRun: boolean) =>
+      ipcRenderer.invoke('tag-cleanup:undo', batchId, dryRun),
+    fileCounts: (batchId: string) => ipcRenderer.invoke('tag-cleanup:file-counts', batchId),
+    writeFiles: (batchId: string, mode: 'canary' | 'rest') =>
+      ipcRenderer.invoke('tag-cleanup:write-files', batchId, mode, false),
+    restoreFiles: (batchId: string) =>
+      ipcRenderer.invoke('tag-cleanup:write-files', batchId, 'rest', true),
+    onImportMatches: (cb: (p: { count: number }) => void) =>
+      ipcRenderer.on('tag-cleanup:import-matches', (_e, p) => cb(p)),
+    onFilesDone: (cb: (p: { batchId: string; status: string; left: number }) => void) =>
+      ipcRenderer.on('tag-cleanup:files-done', (_e, p) => cb(p)),
+    offEvents: () => {
+      ipcRenderer.removeAllListeners('tag-cleanup:import-matches')
+      ipcRenderer.removeAllListeners('tag-cleanup:files-done')
+    }
+  },
   artist: {
     suggestions: () => ipcRenderer.invoke('artist:suggestions'),
     accept: (raw: string) => ipcRenderer.invoke('artist:accept', raw),

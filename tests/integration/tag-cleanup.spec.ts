@@ -1,10 +1,12 @@
 import { test, expect } from '@playwright/test'
-import { hasElectron } from '../helpers/paths'
+import { rmSync } from 'fs'
+import { freshAudio, hasFfmpeg, makeTempDir, readFileTags } from '../helpers/audio'
+import { hasElectron, hasSidecarVenv } from '../helpers/paths'
 import { createProbeSession, unwrap, type ProbeOp, type ProbeSession } from '../helpers/probe'
 
 // Metadata Cleanup against the real SQLite schema (db.ts), through
-// main/tagCleanup/. No audio files: the file write-back is the edit-tags job,
-// covered by its own specs; here only which files it would be handed.
+// main/tagCleanup/. The last test also writes a real audio file the way the
+// edit-tags job does; the job itself is covered by its own specs.
 
 test.skip(!hasElectron(), 'electron/esbuild not installed')
 
@@ -169,7 +171,8 @@ test('apply: exact spellings, derived columns, a log, saved rules; undo puts it 
   const [undo] = await run<{ restored: number; skipped: { trackId: number }[] }>([
     { fn: 'cleanupUndo', args: [batches[0].id] }
   ])
-  expect(undo.restored).toBe(3)
+  // Tracks 1 and 3 (genre and comment): counted per track, not per change.
+  expect(undo.restored).toBe(2)
   expect(undo.skipped.map((s) => s.trackId)).toEqual([2])
 
   // Tag fields as they were; updated_at moves on (undo is an edit too, and
@@ -228,4 +231,64 @@ test('after an import, saved rules only count matching tracks; nothing is applie
   ])
   expect(count).toBe(1)
   expect((all as Row[]).find((r) => r.id === ids[0])?.genre).toBe('House x Dance')
+})
+
+test('real file: cleaned tags reach the file, and undo puts the original back', async () => {
+  test.skip(!hasSidecarVenv(), 'sidecar/.venv not built — run sidecar/build.sh')
+  test.skip(!hasFfmpeg(), 'ffmpeg is required to generate audio fixtures')
+  const dir = makeTempDir('deepcrated-cleanup-')
+  try {
+    const filepath = freshAudio(dir, 'mp3')
+    await run([
+      {
+        fn: 'insertTrack',
+        args: [
+          {
+            filepath,
+            filename: 'a.mp3',
+            title: 'A',
+            genre: 'Hip Hop x Twerk',
+            comment: 'GOTOS HEADZ'
+          }
+        ]
+      },
+      {
+        fn: 'writeTagsForFile',
+        args: [filepath, { genre: 'Hip Hop x Twerk', comment: 'GOTOS HEADZ' }]
+      }
+    ])
+    const [plan] = await run<{ groups: Group[] }>([{ fn: 'cleanupPlan', args: [CHOICES] }])
+    const selections = plan.groups.map((g) => ({ groupId: g.id, result: g.result }))
+    await run([{ fn: 'cleanupApply', args: [{ choices: CHOICES, selections }] }])
+    const [batches] = await run<{ id: string }[]>([{ fn: 'cleanupBatches' }])
+    const id = batches[0].id
+
+    // What the edit-tags job does with each item, then records it.
+    const [items] = await run<
+      { filepath: string; meta: Record<string, string>; changeIds: number[] }[]
+    >([{ fn: 'cleanupFileWrites', args: [id, 3] }])
+    for (const item of items) {
+      const [results] = await run<{ success: boolean }[]>([
+        { fn: 'writeTagsForFile', args: [item.filepath, item.meta] }
+      ])
+      expect(results[0].success).toBe(true)
+      await run([{ fn: 'cleanupMarkFileWritten', args: [item.changeIds] }])
+    }
+    let tags = await readFileTags(filepath)
+    expect(tags.genre).toBe('Hip Hop | Twerk')
+    expect(tags.comment).toBe('GOTOS | HEADZ')
+
+    const [undo] = await run<{ filesToRestore: number }>([{ fn: 'cleanupUndo', args: [id] }])
+    expect(undo.filesToRestore).toBe(1)
+    const [restores] = await run<{ filepath: string; meta: Record<string, string> }[]>([
+      { fn: 'cleanupFileRestores', args: [id] }
+    ])
+    expect(restores).toHaveLength(1)
+    await run([{ fn: 'writeTagsForFile', args: [restores[0].filepath, restores[0].meta] }])
+    tags = await readFileTags(filepath)
+    expect(tags.genre).toBe('Hip Hop x Twerk')
+    expect(tags.comment).toBe('GOTOS HEADZ')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 })

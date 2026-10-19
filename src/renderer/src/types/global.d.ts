@@ -1,6 +1,8 @@
 export {}
 
 declare global {
+  type CleanupResult<T> = { ok: true; result: T } | { ok: false; error: string }
+
   interface Window {
     api: {
       openFolder: () => Promise<string | null>
@@ -308,6 +310,30 @@ declare global {
         delete: (key: string) => Promise<{ ok: boolean; error?: string }>
       }
 
+      // Metadata Cleanup (main/tagCleanup/). Every call answers
+      // { ok, result } or { ok: false, error }.
+      tagCleanup: {
+        scan: () => Promise<CleanupResult<import('../../../shared/tagCleanup').CleanupInventory>>
+        plan: (
+          choices: import('../../../shared/tagCleanup').CleanupChoices
+        ) => Promise<CleanupResult<{ groups: import('../../../shared/tagCleanup').ReviewGroup[]; tracks: number }>>
+        apply: (req: import('../../../shared/tagCleanup').ApplyRequest) => Promise<CleanupResult<import('../../../shared/tagCleanup').ApplySummary>>
+        batches: () => Promise<CleanupResult<import('../../../shared/tagCleanup').BatchInfo[]>>
+        undo: (batchId: string, dryRun: boolean) => Promise<CleanupResult<import('../../../shared/tagCleanup').UndoSummary>>
+        fileCounts: (
+          batchId: string
+        ) => Promise<CleanupResult<{ toWrite: number; toRestore: number }>>
+        writeFiles: (
+          batchId: string,
+          mode: 'canary' | 'rest'
+        ) => Promise<CleanupResult<{ jobId: string | null; filepaths: string[] }>>
+        restoreFiles: (
+          batchId: string
+        ) => Promise<CleanupResult<{ jobId: string | null; filepaths: string[] }>>
+        onImportMatches: (cb: (p: { count: number }) => void) => void
+        onFilesDone: (cb: (p: { batchId: string; status: string; left: number }) => void) => void
+        offEvents: () => void
+      }
       artist: {
         suggestions: () => Promise<{ groups: ArtistSuggestionGroup[]; mode: 'off' | 'auto' | 'suggest' }>
         accept: (raw: string) => Promise<ArtistApplyResult>

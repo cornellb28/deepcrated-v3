@@ -19,68 +19,24 @@ import {
   planTrackField,
   rulesFromChoices,
   splitOnDelimiters,
+  type ApplyRequest,
+  type ApplySummary,
+  type BatchInfo,
   type CleanupChoices,
+  type CleanupInventory,
   type CleanupRules,
-  type ExactProposal,
+  type DelimiterCandidate,
   type PlannedChange,
-  type PlanGroup,
-  type TypoSuggestion
+  type ReviewGroup,
+  type UndoSummary
 } from '../../shared/tagCleanup'
-import type {
-  ApplySummary,
-  BatchInfo,
-  CleanupTrackRow,
-  FileWrite,
-  TagCleanupStore,
-  UndoSummary
-} from './sqliteStore'
+import type { CleanupTrackRow, FileWrite, TagCleanupStore } from './sqliteStore'
 
 const DELIMITER_PATTERNS: Record<string, RegExp> = {
   ' x ': /\s+x\s+/i,
   ' / ': /\s+\/\s+/,
   ' | ': /\s+\|\s+/,
   ';': /;/
-}
-
-export interface DelimiterCandidate {
-  field: string
-  delimiter: string
-  tracks: number
-  distinct: number
-  examples: { value: string; count: number }[]
-  allowed: boolean
-  confirmed: boolean // a saved rule
-  // " | " is the separator DeepCrated already uses: counted for the record,
-  // never offered as something to split.
-  existing: boolean
-}
-
-export interface SpellingChoiceGroup {
-  field: string
-  key: string
-  spellings: { value: string; count: number }[]
-  chosen: string | null // the saved canonical spelling, if every variant has one
-}
-
-export interface CleanupInventory {
-  tracks: number
-  delimiters: DelimiterCandidate[]
-  spellings: SpellingChoiceGroup[]
-  typos: TypoSuggestion[]
-  exact: (ExactProposal & { saved: string[] | null })[]
-  savedRules: CleanupRules
-}
-
-export interface ReviewGroup extends PlanGroup {
-  examples: { trackId: number; title: string | null; artist: string | null }[]
-}
-
-export interface ApplyRequest {
-  choices: CleanupChoices
-  // The groups to apply, each with its result as edited on the review screen.
-  selections: { groupId: string; result: string[] }[]
-  source?: 'library' | 'import'
-  dryRun?: boolean
 }
 
 export interface FileJobItem {
@@ -101,7 +57,24 @@ function byFile(writes: readonly FileWrite[]): FileJobItem[] {
   return [...out.values()]
 }
 
-export function createTagCleanup(store: TagCleanupStore, uuid: () => string = randomUUID) {
+export interface TagCleanup {
+  scan(): CleanupInventory
+  plan(choices: CleanupChoices): { groups: ReviewGroup[]; tracks: number }
+  apply(req: ApplyRequest): ApplySummary
+  batches(): BatchInfo[]
+  undo(batchId: string, dryRun?: boolean): UndoSummary
+  fileWrites(batchId: string, limit?: number): FileJobItem[]
+  fileRestores(batchId: string): FileJobItem[]
+  markFileWritten(changeIds: readonly number[]): void
+  markFileRestored(changeIds: readonly number[]): void
+  setFilesStatus(batchId: string, status: string): void
+  importMatches(trackIds: readonly number[]): number
+}
+
+export function createTagCleanup(
+  store: TagCleanupStore,
+  uuid: () => string = randomUUID
+): TagCleanup {
   function plan(
     rows: readonly CleanupTrackRow[],
     rules: CleanupRules
@@ -271,5 +244,3 @@ export function createTagCleanup(store: TagCleanupStore, uuid: () => string = ra
     }
   }
 }
-
-export type TagCleanup = ReturnType<typeof createTagCleanup>

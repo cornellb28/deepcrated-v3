@@ -9,6 +9,8 @@ import { SeratoImportConfirmDialog } from '@renderer/components/SeratoImportConf
 import { StatsConsentSwitch } from '../components/StatsConsentSwitch'
 import { IdentityLookupSwitch } from '../components/IdentityLookupSwitch'
 import { ArtistCleanSettings } from '../components/ArtistCleanSettings'
+import { CleanupHistory } from '../components/CleanupFiles'
+import { useTagCleanupStore } from '../store/useTagCleanupStore'
 import { useLibraryStore } from '../store/useLibraryStore'
 import { FilenameTemplateEditor } from '../components/FilenameTemplateEditor'
 import { describePlan } from '../lib/plan'
@@ -569,6 +571,25 @@ export function SettingsView({
               description="Tidy artist names as tracks are imported, so one artist is spelled one way. Your original spelling is always kept."
             >
               <ArtistCleanSettings />
+            </Section>
+
+            <Section
+              title="Metadata cleanup"
+              description="Split combined tags like “Hip Hop x R&B” into separate tags and settle on one spelling. You review every change, files are a separate step, and each cleanup can be undone."
+            >
+              <div style={{ display: 'flex', flexDirection: 'column', gap: SPACE.betweenItems }}>
+                <div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    data-testid="open-metadata-cleanup"
+                    onClick={() => useTagCleanupStore.getState().show('library')}
+                  >
+                    Review combined tags…
+                  </Button>
+                </div>
+                <CleanupHistory />
+              </div>
             </Section>
 
             <Section

@@ -424,3 +424,76 @@ export function mergeRules(base: CleanupRules, next: CleanupRules): CleanupRules
   }
   return { delimiters, rewrites }
 }
+
+// ── Shapes passed between main and the review screen ──────────────────────
+
+export interface DelimiterCandidate {
+  field: string
+  delimiter: string
+  tracks: number
+  distinct: number
+  examples: { value: string; count: number }[]
+  allowed: boolean
+  confirmed: boolean // a saved rule
+  // " | " is the separator DeepCrated already uses: counted for the record,
+  // never offered as something to split.
+  existing: boolean
+}
+
+export interface SpellingChoiceGroup {
+  field: string
+  key: string
+  spellings: { value: string; count: number }[]
+  chosen: string | null // the saved canonical spelling, if every variant has one
+}
+
+export interface CleanupInventory {
+  tracks: number
+  delimiters: DelimiterCandidate[]
+  spellings: SpellingChoiceGroup[]
+  typos: TypoSuggestion[]
+  exact: (ExactProposal & { saved: string[] | null })[]
+  savedRules: CleanupRules
+}
+
+export interface ReviewGroup extends PlanGroup {
+  examples: { trackId: number; title: string | null; artist: string | null }[]
+}
+
+export interface ApplyRequest {
+  choices: CleanupChoices
+  // The groups to apply, each with its result as edited on the review screen.
+  selections: { groupId: string; result: string[] }[]
+  source?: 'library' | 'import'
+  dryRun?: boolean
+}
+
+export interface ApplySummary {
+  batchId: string
+  dryRun: boolean
+  tracks: number
+  changes: number
+  byField: Record<string, number>
+  tagsCreated: string[] // "field:value"
+  tagsDeleted: string[]
+  files: number // tracks whose file can be written (present, not missing)
+}
+
+export interface BatchInfo {
+  id: string
+  createdAt: number
+  source: 'library' | 'import'
+  status: 'applied' | 'undone'
+  filesStatus: string
+  changes: number
+  filesWritten: number
+  examples: { field: string; before: string | null; after: string[] }[]
+}
+
+export interface UndoSummary {
+  batchId: string
+  dryRun: boolean
+  restored: number
+  skipped: { trackId: number; title: string | null; reason: string }[]
+  filesToRestore: number
+}
