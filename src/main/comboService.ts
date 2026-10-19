@@ -26,6 +26,11 @@ import {
 import { parseCamelot } from '../shared/trackMatch'
 import { toEnergy } from '../shared/energy'
 
+// TODO(combos): feed ComboTrack.recentlyPlayed from the plays table (the
+// scorer already applies COMBO_WEIGHTS.recentlyPlayed). Not wired yet: the
+// table exists but holds no rows in a real library, so there is no way to
+// check what "recent" should mean. Likewise "played together", once set
+// history exists.
 export const COMBO_CANDIDATE_LIMIT = 500
 export const COMBO_RESULT_LIMIT = 30
 
