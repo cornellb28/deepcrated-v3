@@ -1,6 +1,10 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useLibraryStore } from '../store/useLibraryStore'
 import { TrackRow } from './TrackRow'
+import { TrackCard } from './TrackCard'
+import { ViewModeToggle } from './ViewModeToggle'
+import { useViewMode } from '../hooks/useViewMode'
+import { TRACK_GRID_GAP, trackGridColumns } from '../lib/trackCard'
 import { BulkBar } from './BulkBar'
 import { applySelection, selectAll, type SelectModifiers } from '../lib/selection'
 import { ArtistCleanDialog } from './ArtistCleanDialog'
@@ -52,6 +56,33 @@ export function HealthSection(): React.JSX.Element {
   const [queueIds, setQueueIds] = useState<number[]>([])
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [anchorId, setAnchorId] = useState<number | null>(null)
+  // Grid or list for the fix queue, remembered (app_settings) across
+  // launches. Both draw the same tracks with the same selection and menus.
+  const [viewMode, setViewMode] = useViewMode('crate_health', 'list')
+  const scrollRef = useRef<HTMLDivElement>(null)
+  // The track at the top of the panel when the view is switched, so the
+  // other view opens at the same place instead of back at the start.
+  const keepInView = useRef<number | null>(null)
+
+  function switchView(next: 'list' | 'grid'): void {
+    const box = scrollRef.current
+    if (box) {
+      const items = box.querySelectorAll<HTMLElement>('[data-health-track]')
+      const top = box.scrollTop
+      const first = Array.from(items).find((el) => el.offsetTop + el.offsetHeight > top)
+      keepInView.current = first ? Number(first.dataset.healthTrack) : null
+    }
+    setViewMode(next)
+  }
+
+  useLayoutEffect(() => {
+    const box = scrollRef.current
+    const id = keepInView.current
+    keepInView.current = null
+    if (!box || id === null) return
+    const el = box.querySelector<HTMLElement>(`[data-health-track="${id}"]`)
+    if (el) box.scrollTop = el.offsetTop - 8
+  }, [viewMode])
 
   // Only the newest request may write state: a slow answer to an older
   // request must not overwrite a newer one.
@@ -290,6 +321,9 @@ export function HealthSection(): React.JSX.Element {
                 {openCheck.hint}
               </div>
             </div>
+            {queueTracks.length > 0 && (
+              <ViewModeToggle mode={viewMode} onChange={switchView} labelled label="Crate Health" />
+            )}
             {/* FIX_ACTIONS_SLOT — see the note at the top of this file. */}
             {openCheck.fixActions.map((action) => (
               <button
@@ -352,27 +386,52 @@ export function HealthSection(): React.JSX.Element {
               ✓ All done — nothing {openCheck.label.toLowerCase()} any more.
             </div>
           ) : (
-            <div style={{ maxHeight: '420px', overflowY: 'auto', padding: '8px 10px' }}>
-              {shownTracks.map((track) => (
-                <React.Fragment key={track.id}>
-                  <TrackRow
-                    track={track}
-                    isSelected={selectedIds.has(track.id)}
-                    onSelected={handleSelect}
-                  />
-                  {openCheck.id === 'unreadable_audio' && track.analysis_error && (
+            <div
+              ref={scrollRef}
+              data-testid="health-queue"
+              data-view={viewMode}
+              style={{
+                position: 'relative',
+                maxHeight: '420px',
+                overflowY: 'auto',
+                padding: '8px 10px',
+                ...(viewMode === 'grid'
+                  ? { display: 'grid', gridTemplateColumns: trackGridColumns, gap: TRACK_GRID_GAP }
+                  : {})
+              }}
+            >
+              {shownTracks.map((track) => {
+                const issue =
+                  openCheck.id === 'unreadable_audio' && track.analysis_error ? (
                     <div
                       style={{
                         fontSize: '11px',
                         color: '#d85a30',
-                        padding: '0 12px 8px 44px'
+                        padding: viewMode === 'grid' ? '4px 2px 0' : '0 12px 8px 44px'
                       }}
                     >
                       {ISSUE_CAPTIONS[track.analysis_error] ?? 'Problem reading this file'}
                     </div>
-                  )}
-                </React.Fragment>
-              ))}
+                  ) : null
+                return (
+                  <div key={track.id} data-health-track={track.id}>
+                    {viewMode === 'grid' ? (
+                      <TrackCard
+                        track={track}
+                        isSelected={selectedIds.has(track.id)}
+                        onSelect={handleSelect}
+                      />
+                    ) : (
+                      <TrackRow
+                        track={track}
+                        isSelected={selectedIds.has(track.id)}
+                        onSelected={handleSelect}
+                      />
+                    )}
+                    {issue}
+                  </div>
+                )
+              })}
             </div>
           )}
 
