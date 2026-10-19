@@ -53,9 +53,12 @@ export const COMBO_WEIGHTS = {
   // Subtracted when the candidate was played recently.
   recentlyPlayed: 0.1,
   // Subtracted per missing key or BPM, so a match scored on less evidence
-  // cannot outrank a complete one of the same quality. Missing energy is not
-  // penalised: few tracks are rated, and it would shift every result alike.
-  partial: 0.15
+  // cannot outrank a complete one of the same quality.
+  partial: 0.15,
+  // Subtracted when the source has an energy rating and the candidate does
+  // not: it cannot be shown to meet the energy goal. (When the source has no
+  // rating, every candidate is equally unknown, so nothing is subtracted.)
+  partialEnergy: 0.1
 } as const
 
 export const KEY_SCORES = {
@@ -250,6 +253,7 @@ export function scoreCombo(
 
   let score = weight > 0 ? sum / weight : 0
   score -= COMBO_WEIGHTS.partial * missing.filter((m) => m !== 'energy').length
+  if (se !== null && ce === null) score -= COMBO_WEIGHTS.partialEnergy
   if (overlap(source.genres, candidate.genres) > 0) {
     score += COMBO_WEIGHTS.sharedGenre
     reasons.push('Same genre')

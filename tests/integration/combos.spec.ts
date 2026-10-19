@@ -47,10 +47,10 @@ test('candidates come from the database cut; partial matches are kept and marked
   const [r] = await run<Response>([{ fn: 'findCombos', args: [1, { goal: 'build' }] }])
   expect(r.status).toBe('ok')
   const ids = r.results.map((x) => x.id)
-  // Same key at exactly half the tempo (7) edges out +1 key, +0.8% (2); both
-  // rank above the partial matches.
-  expect(ids.slice(0, 2)).toEqual([7, 2])
-  expect(r.results.slice(2).every((x) => x.partial)).toBe(true)
+  // Goal "build" from energy 6: track 2 (rated 7, +1 key) leads; track 7 is
+  // a perfect key/tempo fit but unrated, so it cannot be shown to build.
+  expect(ids.slice(0, 2)).toEqual([2, 7])
+  expect(r.results.slice(1).every((x) => x.partial)).toBe(true)
   expect(new Set(ids)).toEqual(new Set([2, 3, 4, 7]))
   expect(r.results.find((x) => x.id === 2)?.reasons).toEqual([
     'Key 8A → 9A (+1)',

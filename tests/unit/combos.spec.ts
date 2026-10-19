@@ -86,9 +86,20 @@ test('missing factors: scored on the rest, marked partial, never thrown away sil
   expect(noKey.missing).toEqual(['key'])
   expect(noKey.partial).toBe(true)
   expect(noKey.reasons.at(-1)).toBe('Partial: no key')
+  // Source unrated: energy is unknown for everyone, so it costs nothing.
   const noEnergy = scoreCombo(track(1, 128, '8A', null), track(2, 128, '8A', 6), S)!
   expect(noEnergy.missing).toEqual(['energy'])
   expect(noEnergy.score).toBe(1) // perfect on what it has
+  // Source rated, candidate not: it cannot be shown to meet the goal.
+  const unrated = scoreCombo(track(1, 128, '8A', 6), track(2, 128, '8A', null), {
+    ...S,
+    goal: 'build'
+  })!
+  const builds = scoreCombo(track(1, 128, '8A', 6), track(3, 128, '9A', 7), {
+    ...S,
+    goal: 'build'
+  })!
+  expect(builds.score).toBeGreaterThan(unrated.score)
   // Neither key nor BPM: nothing to mix on.
   expect(scoreCombo(track(1, 128, '8A', 6), track(2, null, null, 6), S)).toBeNull()
   // Source with no BPM still finds key matches.
