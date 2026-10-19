@@ -3469,9 +3469,8 @@ app.whenReady().then(() => {
   // ── Metadata Cleanup (split combined tag values) ────────────
   // Database changes and file writes are separate, explicit steps. Files go
   // through the same edit-tags job as every other tag write, so they show in
-  // the background-jobs panel; the first write of a batch is a canary of
-  // CLEANUP_CANARY_FILES that stops for the DJ to check in Serato.
-  const CLEANUP_CANARY_FILES = 3
+  // the background-jobs panel; the first write of a batch is a canary (one
+  // file per format, see pickCanary) that stops for the DJ to check in Serato.
   ipcMain.handle('tag-cleanup:scan', () => guard(() => tagCleanup.scan()))
   ipcMain.handle('tag-cleanup:plan', (_e, choices: unknown) =>
     guard(() => tagCleanup.plan(choices as Parameters<typeof tagCleanup.plan>[0]))
@@ -3502,7 +3501,9 @@ app.whenReady().then(() => {
       return guard(() => {
         const items = restoring
           ? tagCleanup.fileRestores(batchId)
-          : tagCleanup.fileWrites(batchId, canary ? CLEANUP_CANARY_FILES : undefined)
+          : canary
+            ? tagCleanup.canaryWrites(batchId)
+            : tagCleanup.fileWrites(batchId)
         if (items.length === 0) return { jobId: null, filepaths: [] as string[] }
         const byPath = new Map(items.map((i) => [i.filepath, i.changeIds]))
         tagCleanup.setFilesStatus(batchId, restoring ? 'restoring' : 'writing')

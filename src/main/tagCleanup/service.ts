@@ -16,6 +16,8 @@ import {
   groupChanges,
   isAllowedDelimiter,
   mergeRules,
+  pickCanary,
+  RARE_VALUE_MAX_TRACKS,
   planTrackField,
   rulesFromChoices,
   splitOnDelimiters,
@@ -64,6 +66,8 @@ export interface TagCleanup {
   batches(): BatchInfo[]
   undo(batchId: string, dryRun?: boolean): UndoSummary
   fileWrites(batchId: string, limit?: number): FileJobItem[]
+  // One mp3, one m4a, one wav where the batch has them (see pickCanary).
+  canaryWrites(batchId: string): FileJobItem[]
   fileRestores(batchId: string): FileJobItem[]
   markFileWritten(changeIds: readonly number[]): void
   markFileRestored(changeIds: readonly number[]): void
@@ -87,6 +91,25 @@ export function createTagCleanup(
       changes.push(c)
       info.set(row.input.trackId, row)
     }
+    // How many tracks each value would be on once this plan is applied,
+    // across the whole library, so one-off values can be flagged.
+    const changed = new Map(changes.map((c) => [`${c.trackId}\u0001${c.field}`, c.newTags]))
+    const onTracks = new Map<string, number>()
+    for (const row of rows) {
+      const { trackId, field, linked, column } = row.input
+      const values =
+        changed.get(`${trackId}\u0001${field}`) ??
+        (linked.length > 0 ? linked : splitValue(field, column))
+      for (const k of new Set(values.map((v) => `${field}\u0001${tagValueKey(v)}`))) {
+        onTracks.set(k, (onTracks.get(k) ?? 0) + 1)
+      }
+    }
+    const originalKeys = new Map<string, Set<string>>()
+    for (const c of changes) {
+      if (originalKeys.has(c.groupKey)) continue
+      const before = c.prevTags.length > 0 ? c.prevTags : splitValue(c.field, c.prevColumn)
+      originalKeys.set(c.groupKey, new Set(before.map(tagValueKey)))
+    }
     const groups = groupChanges(changes, (c) => c.prevColumn ?? c.prevTags.join(' | ')).map(
       (g) => ({
         ...g,
@@ -94,7 +117,16 @@ export function createTagCleanup(
           trackId: id,
           title: info.get(id)?.title ?? null,
           artist: info.get(id)?.artist ?? null
-        }))
+        })),
+        // Only values the cleanup creates: one already on the track as
+        // written (or respelled) is not new.
+        rare: g.result
+          .filter((value) => !originalKeys.get(g.id)?.has(tagValueKey(value)))
+          .map((value) => ({
+            value,
+            tracks: onTracks.get(`${g.field}\u0001${tagValueKey(value)}`) ?? 0
+          }))
+          .filter((r) => r.tracks <= RARE_VALUE_MAX_TRACKS)
       })
     )
     return { changes, groups }
@@ -215,6 +247,10 @@ export function createTagCleanup(
       const writes = store.pendingFileWrites(batchId)
       const items = byFile(writes)
       return limit ? items.slice(0, limit) : items
+    },
+
+    canaryWrites(batchId: string): FileJobItem[] {
+      return pickCanary(byFile(store.pendingFileWrites(batchId)))
     },
 
     fileRestores(batchId: string): FileJobItem[] {

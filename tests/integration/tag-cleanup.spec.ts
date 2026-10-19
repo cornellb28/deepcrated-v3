@@ -28,6 +28,7 @@ function track(n: number, extra: Record<string, unknown>): ProbeOp {
 }
 
 interface Group {
+  rare: { value: string; tracks: number }[]
   id: string
   kind: string
   field: string
@@ -101,6 +102,9 @@ test('plan groups by original value and result; artist and label are never split
   expect(byLabel['GOTOS HEADZ']).toMatchObject({ kind: 'exact', result: ['GOTOS', 'HEADZ'] })
   expect(byLabel['R&B']).toMatchObject({ kind: 'spelling', result: ['RnB'] })
   expect(plan.groups.some((g) => g.field === 'label' || g.field === 'artist')).toBe(false)
+  // One-off values are flagged (their groups start unticked on screen).
+  expect(byLabel['Hip Hop x Twerk'].rare).toEqual([{ value: 'Twerk', tracks: 1 }])
+  expect(byLabel['Hip Hop x R&B'].rare).toEqual([])
   expect(plan.tracks).toBe(4)
 })
 

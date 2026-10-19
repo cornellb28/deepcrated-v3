@@ -425,6 +425,29 @@ export function mergeRules(base: CleanupRules, next: CleanupRules): CleanupRules
   return { delimiters, rewrites }
 }
 
+// ── The canary ────────────────────────────────────────────────────────────
+// The first file write of a batch is a few files the DJ checks in Serato:
+// one of each format the batch touches, in this order, so a format that
+// Serato reads differently (WAV keeps tags in an ID3 chunk inside RIFF) shows
+// up before the rest are written. Topped up to CANARY_SIZE from what is left.
+
+export const CANARY_SIZE = 3
+const CANARY_FORMATS = ['.mp3', '.m4a', '.wav']
+
+export function pickCanary<T extends { filepath: string }>(items: readonly T[]): T[] {
+  const ext = (p: string): string => (/\.[^./\\]+$/.exec(p)?.[0] ?? '').toLowerCase()
+  const picked: T[] = []
+  for (const format of CANARY_FORMATS) {
+    const hit = items.find((i) => ext(i.filepath) === format && !picked.includes(i))
+    if (hit) picked.push(hit)
+  }
+  for (const i of items) {
+    if (picked.length >= CANARY_SIZE) break
+    if (!picked.includes(i)) picked.push(i)
+  }
+  return picked.slice(0, CANARY_SIZE)
+}
+
 // ── Shapes passed between main and the review screen ──────────────────────
 
 export interface DelimiterCandidate {
@@ -456,8 +479,14 @@ export interface CleanupInventory {
   savedRules: CleanupRules
 }
 
+// A value the cleanup would create that ends up on this few tracks across the
+// whole library ("Line", "Edit"): probably a mistake or a one-off. Its group
+// is shown with the tracks behind it and starts unticked (kept as it is).
+export const RARE_VALUE_MAX_TRACKS = 2
+
 export interface ReviewGroup extends PlanGroup {
   examples: { trackId: number; title: string | null; artist: string | null }[]
+  rare: { value: string; tracks: number }[]
 }
 
 export interface ApplyRequest {

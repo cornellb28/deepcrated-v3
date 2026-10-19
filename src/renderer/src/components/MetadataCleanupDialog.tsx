@@ -477,6 +477,27 @@ function ReviewStep({
                       values={results.get(g.id) ?? g.result}
                       onChange={(r) => setResults(new Map(results).set(g.id, r))}
                     />
+                    {g.rare.length > 0 && (
+                      <div data-testid="cleanup-rare" style={{ ...muted, marginTop: '6px' }}>
+                        <span style={{ color: '#ba7517' }}>
+                          {g.rare
+                            .map(
+                              (r) =>
+                                `“${r.value}” would be on ${r.tracks} track${r.tracks === 1 ? '' : 's'}`
+                            )
+                            .join(', ')}
+                        </span>
+                        . Left as it is unless you tick it. Tracks:
+                        <ul style={{ margin: '2px 0 0', paddingLeft: '18px' }}>
+                          {g.examples.map((e) => (
+                            <li key={e.trackId}>
+                              {e.title ?? 'Untitled'}
+                              {e.artist ? ` — ${e.artist}` : ''}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}
@@ -591,7 +612,9 @@ function CleanupBody(): React.JSX.Element {
       return
     }
     setGroups(r.result.groups)
-    setSelected(new Set(r.result.groups.map((g) => g.id)))
+    // Groups with a one-off value start unticked: kept as they are unless
+    // the DJ ticks them.
+    setSelected(new Set(r.result.groups.filter((g) => g.rare.length === 0).map((g) => g.id)))
     setResults(new Map())
     setPreview(null)
     setStep('review')

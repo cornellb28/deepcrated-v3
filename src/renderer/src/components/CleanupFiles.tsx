@@ -9,11 +9,9 @@
 import React, { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@renderer/components/ui/button'
-import type { BatchInfo, UndoSummary } from '../../../shared/tagCleanup'
+import { CANARY_SIZE, type BatchInfo, type UndoSummary } from '../../../shared/tagCleanup'
 import { useTagCleanupStore } from '../store/useTagCleanupStore'
 import { refreshArtists as refreshLibrary } from '../lib/refreshArtists'
-
-const CANARY_FILES = 3 // matches CLEANUP_CANARY_FILES in main
 
 const muted: React.CSSProperties = { fontSize: '11px', color: '#555', lineHeight: 1.6 }
 const text: React.CSSProperties = { fontSize: '12px', color: '#c0c0d8', lineHeight: 1.6 }
@@ -73,7 +71,7 @@ export function CleanupFiles({ batchId }: { batchId: string }): React.JSX.Elemen
   if (left === 0) return <div style={muted}>No files to write.</div>
 
   if (confirming) {
-    const n = confirming === 'canary' ? Math.min(CANARY_FILES, left) : left
+    const n = confirming === 'canary' ? Math.min(CANARY_SIZE, left) : left
     return (
       <div
         data-testid="cleanup-files-confirm"
@@ -129,7 +127,7 @@ export function CleanupFiles({ batchId }: { batchId: string }): React.JSX.Elemen
       <div style={text}>
         {status === 'partial'
           ? `${plural(left, 'file')} still to write (some could not be written; see Background jobs).`
-          : `${plural(left, 'file')} can be updated to match. The first ${Math.min(CANARY_FILES, left)} are written on their own so you can check them in Serato.`}
+          : `${plural(left, 'file')} can be updated to match. First ${Math.min(CANARY_SIZE, left)} on their own, one of each format (mp3, m4a, wav), so you can check them in Serato.`}
       </div>
       <div>
         <Button
@@ -138,7 +136,7 @@ export function CleanupFiles({ batchId }: { batchId: string }): React.JSX.Elemen
           data-testid="cleanup-files-start"
           onClick={() => setConfirming(status === 'partial' ? 'rest' : 'canary')}
         >
-          {status === 'partial' ? 'Try again' : `Write ${Math.min(CANARY_FILES, left)} files first`}
+          {status === 'partial' ? 'Try again' : `Write ${Math.min(CANARY_SIZE, left)} files first`}
         </Button>
       </div>
     </div>

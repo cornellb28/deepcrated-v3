@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test'
 import {
   findExactProposals,
+  pickCanary,
   findSpellingGroups,
   findTypos,
   groupChanges,
@@ -252,4 +253,18 @@ test('values no rule touches are kept exactly, even beside ones that change', ()
   expect(
     planTrackField(col(4, 'comment', `GOTOS HEADZ | ${stamp}`), rules, splitValue)?.newTags
   ).toEqual(['GOTOS', 'HEADZ', stamp])
+})
+
+test('the canary takes one mp3, one m4a and one wav, then tops up', () => {
+  const items = ['/a/1.mp3', '/a/2.mp3', '/a/3.MP3', '/a/4.M4A', '/a/5.wav', '/a/6.m4a'].map(
+    (filepath) => ({ filepath })
+  )
+  expect(pickCanary(items).map((i) => i.filepath)).toEqual(['/a/1.mp3', '/a/4.M4A', '/a/5.wav'])
+  // A batch with no wav: still three files.
+  expect(pickCanary(items.slice(0, 4)).map((i) => i.filepath)).toEqual([
+    '/a/1.mp3',
+    '/a/4.M4A',
+    '/a/2.mp3'
+  ])
+  expect(pickCanary([])).toEqual([])
 })
