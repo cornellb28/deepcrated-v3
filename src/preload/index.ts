@@ -389,7 +389,8 @@ const api = {
   match: {
     related: (trackId: number, direction: 'lift' | 'similar' | 'drop') =>
       ipcRenderer.invoke('match:related', trackId, direction),
-    preview: (profileDraft: unknown) => ipcRenderer.invoke('match:preview', profileDraft)
+    preview: (profileDraft: unknown) => ipcRenderer.invoke('match:preview', profileDraft),
+    tagTypesInUse: () => ipcRenderer.invoke('match:tag-types-in-use')
   },
   settings: {
     get: (key: string) => ipcRenderer.invoke('settings:get', key),

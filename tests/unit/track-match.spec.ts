@@ -340,3 +340,18 @@ test('moving one tag slider rebalances the others and always totals 100', () => 
     custom: 60
   })
 })
+
+test('sliders folded under "Other fields" keep their points; the shown ones absorb the change', () => {
+  const start = DEFAULT_PROFILE.tagWeights // vibe, venue, custom 5 each
+  const shown = ['genre', 'grouping', 'label', 'remixer', 'comment', 'composer'] as const
+  const next = rebalanceTagWeights(start, 'genre', 70, shown)
+  expect(next.genre).toBe(70)
+  expect([next.vibe, next.venue, next.custom]).toEqual([5, 5, 5])
+  expect(Object.values(next).reduce((a, b) => a + b, 0)).toBe(100)
+  // A shown slider can only take what the folded ones leave: 85.
+  expect(rebalanceTagWeights(start, 'genre', 100, shown).genre).toBe(85)
+  // Moving a folded slider takes its points from the shown ones only.
+  const vibe = rebalanceTagWeights(start, 'vibe', 25, shown)
+  expect([vibe.vibe, vibe.venue, vibe.custom]).toEqual([25, 5, 5])
+  expect(Object.values(vibe).reduce((a, b) => a + b, 0)).toBe(100)
+})

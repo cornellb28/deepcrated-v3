@@ -10,6 +10,7 @@ import {
   getMatchTrack,
   getMixProfileRow,
   getTagCoverage,
+  getTagFieldsInUse,
   getTrackTagsForTracks,
   saveMixProfileRow,
   type MatchCandidateRow
@@ -21,9 +22,11 @@ import {
   preFilterKeys,
   PROFILE_VERSION,
   rankCandidates,
+  TAG_TYPES,
   type Direction,
   type MatchTrack,
   type MixProfile,
+  type TagType,
   type TrackTags
 } from '../shared/trackMatch'
 
@@ -200,4 +203,10 @@ export function previewRelated(profileDraft: unknown): {
     source: { id, title: row.title, artist: row.artist },
     result: getRelatedTracks(id, 'similar', profileDraft)
   }
+}
+
+// The tag types with values in this library, in survey order.
+export function tagTypesInUse(): TagType[] {
+  const inUse = new Set(getTagFieldsInUse())
+  return TAG_TYPES.filter((t) => inUse.has(t))
 }

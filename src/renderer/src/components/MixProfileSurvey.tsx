@@ -106,6 +106,23 @@ function SurveyBody({
     normalizeProfile(initialProfile ?? DEFAULT_PROFILE)
   )
   const [saving, setSaving] = useState(false)
+  // Tag fields with values in this library: sliders for these, the rest
+  // folded under "Other fields". Null until loaded.
+  const [inUse, setInUse] = useState<TagType[] | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    void window.api.match.tagTypesInUse().then((types) => {
+      if (!cancelled) setInUse(types)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // Only the shown sliders absorb a change, so folded fields keep their
+  // points. An empty library shows all of them.
+  const shown: readonly TagType[] = inUse && inUse.length > 0 ? inUse : TAG_TYPES
 
   const set = <K extends keyof MixProfile>(key: K, value: MixProfile[K]): void =>
     setDraft((d) => ({ ...d, [key]: value }))
@@ -207,8 +224,9 @@ function SurveyBody({
       {step === 5 && (
         <TagPoints
           weights={draft.tagWeights}
+          shown={inUse === null ? null : shown}
           onChange={(type, value) =>
-            set('tagWeights', rebalanceTagWeights(draft.tagWeights, type, value))
+            set('tagWeights', rebalanceTagWeights(draft.tagWeights, type, value, shown))
           }
         />
       )}
@@ -308,41 +326,99 @@ function Choices<T extends string | number>({
 
 function TagPoints({
   weights,
+  shown,
   onChange
 }: {
   weights: MixProfile['tagWeights']
+  shown: readonly TagType[] | null
   onChange: (type: TagType, value: number) => void
 }): React.JSX.Element {
+  const [othersOpen, setOthersOpen] = useState(false)
+  if (shown === null) {
+    return <div style={{ fontSize: '11px', color: '#555' }}>Reading your tags…</div>
+  }
   const total = TAG_TYPES.reduce((a, t) => a + weights[t], 0)
+  const folded = TAG_TYPES.filter((t) => !shown.includes(t))
+  const foldedTotal = folded.reduce((a, t) => a + weights[t], 0)
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
       <div style={{ fontSize: '11px', color: '#777' }}>
         Spread 100 points. Moving one slider adjusts the others. Total: {total}
       </div>
-      {TAG_TYPES.map((t) => (
-        <div
-          key={t}
-          style={{
-            display: 'grid',
-            gridTemplateColumns: '84px 1fr 32px',
-            gap: '10px',
-            alignItems: 'center'
-          }}
-        >
-          <span style={{ fontSize: '12px', color: '#c0c0d8' }}>{TAG_LABELS[t]}</span>
-          <Slider
-            data-testid={`survey-tag-${t}`}
-            min={0}
-            max={100}
-            step={5}
-            value={[weights[t]]}
-            onValueChange={(v) => onChange(t, v[0])}
-          />
-          <span style={{ fontSize: '12px', color: '#a09be8', textAlign: 'right' }}>
-            {weights[t]}
-          </span>
-        </div>
+      {shown.map((t) => (
+        <TagSlider key={t} type={t} value={weights[t]} onChange={onChange} />
       ))}
+      {folded.length > 0 && (
+        <div data-testid="survey-other-fields">
+          <button
+            type="button"
+            data-testid="survey-other-fields-toggle"
+            aria-expanded={othersOpen}
+            onClick={() => setOthersOpen((o) => !o)}
+            style={{
+              display: 'flex',
+              width: '100%',
+              justifyContent: 'space-between',
+              background: 'none',
+              border: 'none',
+              padding: 0,
+              cursor: 'pointer',
+              fontFamily: 'inherit',
+              fontSize: '12px',
+              color: '#777'
+            }}
+          >
+            <span>
+              {othersOpen ? '▾' : '▸'} Other fields{' '}
+              <span style={{ color: '#555' }}>
+                ({folded.map((t) => TAG_LABELS[t]).join(', ')}, not used in your library yet)
+              </span>
+            </span>
+            <span style={{ color: '#a09be8' }}>{foldedTotal}</span>
+          </button>
+          {othersOpen && (
+            <div
+              style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '12px' }}
+            >
+              {folded.map((t) => (
+                <TagSlider key={t} type={t} value={weights[t]} onChange={onChange} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function TagSlider({
+  type,
+  value,
+  onChange
+}: {
+  type: TagType
+  value: number
+  onChange: (type: TagType, value: number) => void
+}): React.JSX.Element {
+  return (
+    <div
+      style={{
+        display: 'grid',
+        gridTemplateColumns: '84px 1fr 32px',
+        gap: '10px',
+        alignItems: 'center'
+      }}
+    >
+      <span style={{ fontSize: '12px', color: '#c0c0d8' }}>{TAG_LABELS[type]}</span>
+      <Slider
+        data-testid={`survey-tag-${type}`}
+        min={0}
+        max={100}
+        step={5}
+        value={[value]}
+        onValueChange={(v) => onChange(type, v[0])}
+      />
+      <span style={{ fontSize: '12px', color: '#a09be8', textAlign: 'right' }}>{value}</span>
     </div>
   )
 }

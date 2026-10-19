@@ -109,3 +109,15 @@ test('candidates are capped and a track without key or BPM asks for them', async
   expect(noBpm.status).toBe('needs-key-bpm')
   expect(noKey.status).toBe('needs-key-bpm')
 })
+
+test('survey sliders: only tag fields with real values count as in use', async () => {
+  const [empty] = await run<string[]>([{ fn: 'tagTypesInUse' }])
+  expect(empty).toEqual([])
+  const results = await run<unknown>([
+    track(1, { genre: 'House', label: 'SERATOCOLLECTION' }),
+    track(2, { composer: 'Someone', comment: '' }),
+    { fn: 'tagTypesInUse' }
+  ])
+  // The Serato collection stamp alone does not make label "in use".
+  expect(results.at(-1)).toEqual(['genre', 'composer'])
+})

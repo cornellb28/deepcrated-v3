@@ -315,6 +315,10 @@ declare global {
           source: { id: number; title: string | null; artist: string | null } | null
           result: RelatedResult | null
         }>
+        // Tag fields with at least one real value in the library.
+        tagTypesInUse: () => Promise<
+          ('genre' | 'grouping' | 'label' | 'remixer' | 'comment' | 'composer' | 'vibe' | 'venue' | 'custom')[]
+        >
       }
       settings: {
         get: (key: string) => Promise<string | null>

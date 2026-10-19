@@ -537,15 +537,22 @@ export function preFilterKeys(
 
 // The survey's tag sliders: set one type's points and spread the rest over
 // the others in proportion to what they had (evenly if they had nothing),
-// so the total is always exactly 100.
+// so the total is always exactly 100. `adjustable` limits which others may
+// move (the survey passes the fields shown as sliders, so folded-away fields
+// keep their points); the changed slider is capped so the total still fits.
 export function rebalanceTagWeights(
   weights: Record<TagType, number>,
   changed: TagType,
-  value: number
+  value: number,
+  adjustable: readonly TagType[] = TAG_TYPES
 ): Record<TagType, number> {
-  const fixed = Math.max(0, Math.min(100, Math.round(value)))
-  const others = TAG_TYPES.filter((t) => t !== changed)
-  const remaining = 100 - fixed
+  const others = TAG_TYPES.filter((t) => t !== changed && adjustable.includes(t))
+  const held = TAG_TYPES.filter((t) => t !== changed && !adjustable.includes(t))
+  const heldTotal = held.reduce((a, t) => a + Math.max(0, weights[t] ?? 0), 0)
+  const ceiling = Math.max(0, 100 - heldTotal)
+  // With nothing else free to move, this slider holds whatever is left.
+  const fixed = others.length === 0 ? ceiling : Math.max(0, Math.min(ceiling, Math.round(value)))
+  const remaining = 100 - heldTotal - fixed
   const current = others.map((t) => Math.max(0, weights[t] ?? 0))
   const total = current.reduce((a, b) => a + b, 0)
   const exact = others.map((_, i) =>
@@ -563,5 +570,6 @@ export function rebalanceTagWeights(
   }
   const out = { [changed]: fixed } as Record<TagType, number>
   others.forEach((t, i) => (out[t] = floored[i]))
+  held.forEach((t) => (out[t] = Math.max(0, weights[t] ?? 0)))
   return out
 }

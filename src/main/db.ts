@@ -2940,6 +2940,30 @@ export function getTagCoverage(): { tagged: number; total: number } {
     .get() as { tagged: number; total: number }
 }
 
+// Which tag fields hold at least one real value in the library: the Mix
+// Profile survey shows sliders for these and folds the rest away. The label
+// Serato's collection import stamps on everything does not count.
+export function getTagFieldsInUse(): string[] {
+  const columns = ['genre', 'grouping', 'label', 'remixer', 'comment', 'composer']
+  const inUse = columns.filter((f) =>
+    db
+      .prepare(
+        `SELECT 1 FROM tracks WHERE missing = 0 AND TRIM(COALESCE(${f}, '')) <> ''
+           AND lower(TRIM(${f})) <> 'seratocollection' LIMIT 1`
+      )
+      .get()
+  )
+  const tagOnly = db
+    .prepare(
+      `SELECT DISTINCT t.field FROM tags t
+         JOIN track_tags tt ON tt.tag_id = t.id
+         JOIN tracks k ON k.id = tt.track_id AND k.missing = 0
+       WHERE t.field IN ('vibe', 'venue', 'custom')`
+    )
+    .all() as { field: string }[]
+  return [...inUse, ...tagOnly.map((r) => r.field)]
+}
+
 export function getArtworkPath(trackId: number): string | null {
   const row = db.prepare('SELECT artwork_path FROM tracks WHERE id = ?').get(trackId) as
     { artwork_path: string | null } | undefined

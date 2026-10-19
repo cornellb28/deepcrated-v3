@@ -133,7 +133,8 @@ import {
   getRelatedTracks,
   loadMixProfile,
   previewRelated,
-  saveMixProfile
+  saveMixProfile,
+  tagTypesInUse
 } from './trackMatchService'
 import { applyFolderRename, planFolderRename } from './folderRename'
 import { expectMove, cancelExpectation } from './expectedChanges'
@@ -3417,6 +3418,7 @@ app.whenReady().then(() => {
     return getRelatedTracks(trackId, dir)
   })
   ipcMain.handle('match:preview', (_e, profileDraft: unknown) => previewRelated(profileDraft))
+  ipcMain.handle('match:tag-types-in-use', () => tagTypesInUse())
 
   ipcMain.handle('settings:get', (_e, key: string) =>
     isReservedSettingKey(key) ? null : getSetting(key)
