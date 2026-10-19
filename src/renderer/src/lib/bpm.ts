@@ -47,14 +47,13 @@ export function bpmNumber(value: number | string | null | undefined): number | n
   return Number.isFinite(n) && n > 0 ? n : null
 }
 
-// Whole numbers as they are; one decimal only when the stored value has a
-// fractional part (117.5 stays 117.5, 128 never becomes 128.0). Empty: "—".
+// Always a whole number, rounded to the nearest (117.5 → 118, 129.2 → 129),
+// so a tempo never shows a decimal point. Display only: the stored value
+// keeps its precision. Empty: "—".
 export function formatBpm(value: number | string | null | undefined): string {
   const n = bpmNumber(value)
   if (n === null) return '—'
-  if (Number.isInteger(n)) return String(n)
-  const one = Math.round(n * 10) / 10
-  return Number.isInteger(one) ? String(one) : one.toFixed(1)
+  return String(Math.round(n))
 }
 
 export function bpmBand(bpm: number): BpmBand {

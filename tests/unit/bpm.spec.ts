@@ -15,12 +15,14 @@ import {
 // BPM display helpers (src/renderer/src/lib/bpm.ts): formatting, the empty
 // state, the tempo bands and their colours.
 
-test('formatting: whole numbers stay whole, one decimal only when stored', () => {
+test('formatting: always a whole number, rounded to the nearest, never a dot', () => {
   expect(formatBpm(128)).toBe('128')
-  expect(formatBpm(117.5)).toBe('117.5')
-  expect(formatBpm(129.2)).toBe('129.2')
-  expect(formatBpm(99.96)).toBe('100') // rounds to a whole number: no "100.0"
-  expect(formatBpm('123')).toBe('123')
+  expect(formatBpm(117.5)).toBe('118')
+  expect(formatBpm(129.2)).toBe('129')
+  expect(formatBpm(143.6)).toBe('144')
+  expect(formatBpm(99.96)).toBe('100')
+  expect(formatBpm('123.4')).toBe('123')
+  for (let bpm = 60; bpm <= 200; bpm += 0.1) expect(formatBpm(bpm)).not.toContain('.')
 })
 
 test('empty state: null, 0, negative, NaN and junk all read "—", never 0', () => {

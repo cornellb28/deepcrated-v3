@@ -38,7 +38,7 @@ interface BpmProps {
   value: number | string | null | undefined
   size: BpmSize
   // Inspector only: click the number to type a tempo; saved by onChange on
-  // blur or Enter, exactly as the old BPM input did.
+  // blur or Enter, as the old BPM input did, but only when it changed.
   editable?: boolean
   onChange?: (value: string) => void
   // Analysis running: shown instead of the number, not editable.
@@ -122,7 +122,7 @@ export function Bpm({
     >
       {editable && !busy ? (
         <EditableFigure
-          text={n === null ? '' : String(n)}
+          text={n === null ? '' : text}
           display={text}
           style={figure}
           spoken={spoken}
@@ -208,14 +208,16 @@ function EditableFigure({
       onFocus={(e) => e.target.select()}
       onBlur={(e) => {
         setEditing(false)
-        onCommit(e.target.value)
+        // The field shows the rounded tempo; clicking in and out must not
+        // overwrite a stored 129.2 with 129, so only a real edit saves.
+        if (e.target.value.trim() !== text) onCommit(e.target.value)
       }}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === 'Escape') e.currentTarget.blur()
       }}
       style={{
         ...style,
-        width: '5.5ch', // room for 117.5
+        width: '4.5ch',
         background: '#1a1a26',
         border: '1px solid #7f77dd',
         borderRadius: '6px',
