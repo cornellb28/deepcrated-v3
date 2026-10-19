@@ -217,6 +217,17 @@ export const HEALTH_CHECKS: readonly HealthCheck[] = [
 // TODO(health): MusicBrainz auto-fill and any other fixer registers here per
 // check id the same way (see Metadata Cleanup). Nothing else fixes anything
 // automatically.
+//
+// TODO(health): a "file genre differs from tags" check. A rescan of a changed
+// file overwrites tracks.genre with the file's raw string but never touches
+// the genre tag rows, so a track cleaned in the database (Metadata Cleanup
+// split) whose file was then edited elsewhere can show "Hip Hop x Twerk" in
+// the column while its tags say Hip Hop, Twerk. List the tracks where the
+// file's genre and the joined tag values differ, with two fixes, both
+// explicit: keep the tags and rewrite the file (the edit-tags job), or take
+// the file and update the tags. Needs a tag read per file, so it is a
+// background check rather than a pure SQL rule. Chosen instead of making the
+// rescan keep the column when tag rows exist, which would hide the drift.
 export interface HealthFixAction {
   id: string
   label: string
