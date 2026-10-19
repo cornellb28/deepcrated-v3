@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { readPref } from '../lib/prefs'
+import { energyInRange, type EnergyRange } from '../../../shared/energy'
 
 // TODO: ImportProgressPayload/MoveProgressPayload/CopyProgressPayload are
 // each independently redefined in main/index.ts, preload/index.ts, and
@@ -25,6 +26,9 @@ interface LibraryState {
   //Search Query
   bpmRange: [number, number] | null
   setBpmRange: (range: [number, number] | null) => void
+  // The library's energy filter (toolbar), combined with search and BPM.
+  energyRange: EnergyRange | null
+  setEnergyRange: (range: EnergyRange | null) => void
   // The full track list
   tracks: Track[]
   // Which track the DJ has clicked on
@@ -166,6 +170,8 @@ export const useLibraryStore = create<LibraryState>((set) => ({
   viewModes: {},
   bpmRange: null,
   setBpmRange: (range) => set({ bpmRange: range }),
+  energyRange: null,
+  setEnergyRange: (range) => set({ energyRange: range }),
   sidebarCollapsed:
     readPref('deepcrated_sidebar_collapsed', 'cratecloud_sidebar_collapsed') === 'true',
   displayMode:
@@ -369,6 +375,7 @@ export function useFilteredTracks(sourceTracks?: Track[]): Track[] {
   const tracks = useLibraryStore((s) => s.tracks)
   const searchQuery = useLibraryStore((s) => s.searchQuery)
   const bpmRange = useLibraryStore((s) => s.bpmRange)
+  const energyRange = useLibraryStore((s) => s.energyRange)
   const trackTags = useLibraryStore((s) => s.trackTags)
 
   const base = sourceTracks ?? tracks
@@ -384,6 +391,8 @@ export function useFilteredTracks(sourceTracks?: Track[]): Track[] {
       return bpm >= min && (max === Infinity ? true : bpm < max)
     })
   }
+
+  if (energyRange) result = result.filter((t) => energyInRange(t.energy, energyRange))
 
   if (searchQuery.trim()) {
     const q = searchQuery.trim().toLowerCase()

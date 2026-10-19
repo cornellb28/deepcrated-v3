@@ -5,6 +5,8 @@ import { TrackCard } from './TrackCard'
 import { ViewModeToggle } from './ViewModeToggle'
 import { useViewMode } from '../hooks/useViewMode'
 import { TRACK_GRID_GAP, trackGridColumns } from '../lib/trackCard'
+import { EnergyRangeFilter } from './EnergyRangeFilter'
+import { energyInRange, type EnergyRange } from '../../../shared/energy'
 import { BulkBar } from './BulkBar'
 import { applySelection, selectAll, type SelectModifiers } from '../lib/selection'
 import { ArtistCleanDialog } from './ArtistCleanDialog'
@@ -122,7 +124,16 @@ export function HealthSection(): React.JSX.Element {
     () => queueIds.map((id) => tracksById.get(id)).filter((t): t is Track => t !== undefined),
     [queueIds, tracksById]
   )
-  const shownTracks = queueTracks.slice(0, PANEL_LIMIT)
+  // Crate Health's own energy filter (the library toolbar's is not shown on
+  // this page, so it must not narrow this list unseen).
+  const [energyRange, setEnergyRange] = useState<EnergyRange | null>(null)
+  const filteredTracks = useMemo(
+    () =>
+      energyRange ? queueTracks.filter((t) => energyInRange(t.energy, energyRange)) : queueTracks,
+    [queueTracks, energyRange]
+  )
+  const hiddenByFilter = queueTracks.length - filteredTracks.length
+  const shownTracks = filteredTracks.slice(0, PANEL_LIMIT)
   const shownIds = shownTracks.map((t) => t.id)
 
   const openCheck = summary?.checks.find((c) => c.id === openId) ?? null
@@ -322,6 +333,13 @@ export function HealthSection(): React.JSX.Element {
               </div>
             </div>
             {queueTracks.length > 0 && (
+              <EnergyRangeFilter
+                value={energyRange}
+                onChange={setEnergyRange}
+                testId="health-energy-filter"
+              />
+            )}
+            {queueTracks.length > 0 && (
               <ViewModeToggle mode={viewMode} onChange={switchView} labelled label="Crate Health" />
             )}
             {/* FIX_ACTIONS_SLOT — see the note at the top of this file. */}
@@ -373,10 +391,10 @@ export function HealthSection(): React.JSX.Element {
               setAnchorId(null)
             }}
             onSelectAll={() => {
-              setSelectedIds(selectAll(queueTracks.map((t) => t.id)))
+              setSelectedIds(selectAll(filteredTracks.map((t) => t.id)))
               setAnchorId(null)
             }}
-            totalCount={queueTracks.length}
+            totalCount={filteredTracks.length}
           />
 
           {queueTracks.length === 0 ? (
@@ -384,6 +402,11 @@ export function HealthSection(): React.JSX.Element {
             // track leaving the queue ends up here rather than on a blank.
             <div style={{ padding: '14px', fontSize: '12px', color: '#1d9e75' }}>
               ✓ All done — nothing {openCheck.label.toLowerCase()} any more.
+            </div>
+          ) : filteredTracks.length === 0 ? (
+            <div style={{ padding: '14px', fontSize: '12px', color: '#8a8aa0' }}>
+              No tracks in this energy range. {hiddenByFilter.toLocaleString()} hidden by the
+              filter.
             </div>
           ) : (
             <div
@@ -435,7 +458,8 @@ export function HealthSection(): React.JSX.Element {
             </div>
           )}
 
-          {queueTracks.length > PANEL_LIMIT && (
+          {(filteredTracks.length > PANEL_LIMIT ||
+            (hiddenByFilter > 0 && filteredTracks.length > 0)) && (
             <div
               style={{
                 padding: '10px 14px',
@@ -444,8 +468,10 @@ export function HealthSection(): React.JSX.Element {
                 color: '#444'
               }}
             >
-              Showing the first {PANEL_LIMIT} of {queueTracks.length.toLocaleString()} — Select all
-              still takes every one.
+              {filteredTracks.length > PANEL_LIMIT &&
+                `Showing the first ${PANEL_LIMIT} of ${filteredTracks.length.toLocaleString()} — Select all still takes every one. `}
+              {hiddenByFilter > 0 &&
+                `${hiddenByFilter.toLocaleString()} more hidden by the energy filter.`}
             </div>
           )}
         </div>

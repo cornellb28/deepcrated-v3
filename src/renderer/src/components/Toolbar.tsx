@@ -4,6 +4,7 @@ import { ImportDropzone } from './ImportDropzone'
 import { Input } from '@renderer/components/ui/input'
 import type { View } from './Sidebar'
 import { NotificationBell } from './NotificationBell'
+import { EnergyRangeFilter } from './EnergyRangeFilter'
 
 interface ToolbarProps {
   onImportFolder: (path: string) => void
@@ -22,7 +23,16 @@ const BPM_RANGES: { label: string; range: [number, number] }[] = [
 ]
 
 export function Toolbar({ onImportFolder, activeView, onImportFiles }: ToolbarProps): React.JSX.Element {
-  const { isAnalyzing, tracks, searchQuery, setSearchQuery, bpmRange, setBpmRange } = useLibraryStore()
+  const {
+    isAnalyzing,
+    tracks,
+    searchQuery,
+    setSearchQuery,
+    bpmRange,
+    setBpmRange,
+    energyRange,
+    setEnergyRange
+  } = useLibraryStore()
   // The list/grid toggle used to live here, on a single 'all_tracks' key.
   // It now sits in TrackTabBar instead, because the choice is per tab.
 
@@ -135,6 +145,12 @@ export function Toolbar({ onImportFolder, activeView, onImportFiles }: ToolbarPr
               </button>
             )}
           </div>
+
+          <EnergyRangeFilter
+            value={energyRange}
+            onChange={setEnergyRange}
+            testId="library-energy-filter"
+          />
         </div>
       )}
       <span style={{ color: '#444', fontSize: '12px', marginLeft: 'auto' }}>

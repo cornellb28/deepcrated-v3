@@ -8,6 +8,7 @@ import {
 } from '../components/VirtualizedTrackGrid'
 import { TrackTabBar } from '../components/TrackTabBar'
 import { useViewMode } from '../hooks/useViewMode'
+import { energyInRange } from '../../../shared/energy'
 import { useCustomTabs } from '../hooks/useCustomTabs'
 import { buildTabs, filterTracksForTab, tabCounts } from '../lib/tabs'
 import { applySelection, selectAll, type SelectModifiers } from '../lib/selection'
@@ -25,7 +26,7 @@ interface TabSelection {
 const EMPTY_SELECTION: ReadonlySet<number> = new Set()
 
 export function LibraryView(): React.JSX.Element {
-  const { tracks, searchQuery, bpmRange, boards, trackTags } = useLibraryStore()
+  const { tracks, searchQuery, bpmRange, energyRange, boards, trackTags } = useLibraryStore()
 
   // One tab per saved view: the three built-ins, then one per board column
   // that does not already name a built-in, then the DJ's own saved views.
@@ -92,15 +93,16 @@ export function LibraryView(): React.JSX.Element {
           return bpm >= min && (max === Infinity ? true : bpm < max)
         })
       : tracks
-    if (!query) return byBpm
-    return byBpm.filter((t) => {
+    const byEnergy = energyRange ? byBpm.filter((t) => energyInRange(t.energy, energyRange)) : byBpm
+    if (!query) return byEnergy
+    return byEnergy.filter((t) => {
       const haystack = [t.title, t.artist, t.bpm, t.key_camelot, t.camelot, t.genre, t.comment]
         .filter((v) => v !== null && v !== undefined)
         .join(' ')
         .toLowerCase()
       return haystack.includes(query)
     })
-  }, [tracks, bpmRange, query])
+  }, [tracks, bpmRange, energyRange, query])
 
   const counts = useMemo(
     () => tabCounts(tabs, baseTracks, trackTags),
