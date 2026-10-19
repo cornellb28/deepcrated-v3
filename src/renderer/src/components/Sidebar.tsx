@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import {
   ChevronRight,
@@ -7,7 +7,8 @@ import {
   Pencil,
   Trash2,
   UploadCloud,
-  EyeOff
+  EyeOff,
+  Package
 } from 'lucide-react'
 import { useLibraryStore } from '../store/useLibraryStore'
 import { DeleteCrateConfirmDialog } from './DeleteCrateConfirmDialog'
@@ -27,6 +28,8 @@ interface SidebarProps {
   selectedCrateId: number | null
   onSelectCrate: (id: number | null) => void
 }
+
+const COLLAPSED_CRATES_KEY = 'sidebar_collapsed_crates'
 
 interface CrateNode extends Crate {
   children: CrateNode[]
@@ -265,6 +268,35 @@ function CratesSection({
 
   const tree = buildCrateTree(crates)
 
+  // Crates whose sub-crates are folded away. Remembered in app_settings so
+  // the tree comes back the way it was left; everything starts open.
+  const [collapsedIds, setCollapsedIds] = useState<Set<number>>(new Set())
+  useEffect(() => {
+    let cancelled = false
+    void window.api.settings.get(COLLAPSED_CRATES_KEY).then((raw) => {
+      if (cancelled || !raw) return
+      try {
+        const ids = JSON.parse(raw)
+        if (Array.isArray(ids)) setCollapsedIds(new Set(ids.filter(Number.isInteger)))
+      } catch {
+        // A damaged value just means everything shows open.
+      }
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  function toggleCollapsed(id: number): void {
+    setCollapsedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      void window.api.settings.set(COLLAPSED_CRATES_KEY, JSON.stringify([...next]))
+      return next
+    })
+  }
+
   async function runExportAll(): Promise<void> {
     setExportingAll(true)
     await window.api.crates.export(crates.map((c) => c.id))
@@ -368,6 +400,8 @@ function CratesSection({
     const isSelected = active && selectedCrateId === node.id
     const isRenaming = renamingId === node.id
     const isDropTarget = dropTargetId === node.id && draggingId !== node.id
+    const hasChildren = node.children.length > 0
+    const isCollapsed = hasChildren && collapsedIds.has(node.id)
 
     return (
       <div key={node.id}>
@@ -414,15 +448,41 @@ function CratesSection({
             if (!isSelected) e.currentTarget.style.color = '#666'
           }}
         >
-          <span
-            style={{
-              width: '6px',
-              height: '6px',
-              borderRadius: '50%',
-              background: node.color,
-              flexShrink: 0
-            }}
-          />
+          {/* Sub-crate toggle; a crate without any keeps the same indent. */}
+          {hasChildren ? (
+            <button
+              type="button"
+              data-testid={`crate-toggle-${node.id}`}
+              aria-expanded={!isCollapsed}
+              aria-label={`${isCollapsed ? 'Show' : 'Hide'} sub-crates of ${node.name}`}
+              title={isCollapsed ? 'Show sub-crates' : 'Hide sub-crates'}
+              onClick={(e) => {
+                e.stopPropagation()
+                toggleCollapsed(node.id)
+              }}
+              style={{
+                background: 'none',
+                border: 'none',
+                padding: 0,
+                width: '12px',
+                color: 'inherit',
+                cursor: 'pointer',
+                display: 'flex',
+                flexShrink: 0
+              }}
+            >
+              <ChevronRight
+                size={11}
+                style={{
+                  transform: isCollapsed ? 'none' : 'rotate(90deg)',
+                  transition: 'transform 0.1s'
+                }}
+              />
+            </button>
+          ) : (
+            <span style={{ width: '12px', flexShrink: 0 }} />
+          )}
+          <Package size={13} color={node.color} style={{ flexShrink: 0 }} aria-hidden />
           {isRenaming ? (
             <input
               autoFocus
@@ -514,7 +574,7 @@ function CratesSection({
             </>
           )}
         </div>
-        {node.children.map((child) => renderNode(child, depth + 1))}
+        {!isCollapsed && node.children.map((child) => renderNode(child, depth + 1))}
       </div>
     )
   }
