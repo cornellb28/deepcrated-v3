@@ -130,6 +130,7 @@ import {
 } from './serato/seratoImport'
 import { checkBuildStatus } from './staleBuild'
 import { classifyFolder } from './rootCoverage'
+import { analysisUpdate } from './analysisUpdate'
 import {
   getRelatedTracks,
   loadMixProfile,
@@ -1145,19 +1146,20 @@ async function runEditTagsJob(
 // Update just the analysis fields after Phase 2 completes
 function updateTrackAnalysis(trackId: number, result: AnalysisResult): void {
   const existing = getTrackById(trackId)
-  updateTrackMeta({
-    id: trackId,
-    title: result.title,
-    artist: result.artist,
-    genre: result.genre,
-    bpm: result.bpm,
-    key_camelot: result.key_camelot,
-    energy: null,
-    comment: result.comment,
-    artwork_path: existing?.artwork_path ?? null,
-    needs_sync: 0,
-    pending_changes: null
-  })
+  // Never energy: see analysisUpdate.
+  updateTrackMeta(
+    analysisUpdate(
+      trackId,
+      {
+        title: result.title,
+        artist: result.artist,
+        genre: result.genre,
+        comment: result.comment,
+        artwork_path: existing?.artwork_path ?? null
+      },
+      { bpm: result.bpm, key_camelot: result.key_camelot }
+    )
+  )
 }
 
 async function runFolderImport(
@@ -1693,20 +1695,21 @@ async function runPhase2Analysis(event: Electron.IpcMainInvokeEvent): Promise<vo
           }
 
           if (result.success) {
-            // Update just the analysis fields
-            updateTrackMeta({
-              id: track.id,
-              title: track.title,
-              artist: track.artist,
-              genre: track.genre,
-              bpm: result.bpm,
-              key_camelot: result.key_camelot,
-              energy: null,
-              comment: track.comment,
-              artwork_path: track.artwork_path,
-              needs_sync: 0,
-              pending_changes: null
-            })
+            // Update just the analysis fields (never energy: see
+            // analysisUpdate).
+            updateTrackMeta(
+              analysisUpdate(
+                track.id,
+                {
+                  title: track.title,
+                  artist: track.artist,
+                  genre: track.genre,
+                  comment: track.comment,
+                  artwork_path: track.artwork_path
+                },
+                { bpm: result.bpm, key_camelot: result.key_camelot }
+              )
+            )
 
             // Mark as analyzed
             markTrackAnalyzed(track.id)
