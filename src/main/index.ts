@@ -129,6 +129,12 @@ import {
   type SeratoImportTally
 } from './serato/seratoImport'
 import { checkBuildStatus } from './staleBuild'
+import {
+  getRelatedTracks,
+  loadMixProfile,
+  previewRelated,
+  saveMixProfile
+} from './trackMatchService'
 import { applyFolderRename, planFolderRename } from './folderRename'
 import { expectMove, cancelExpectation } from './expectedChanges'
 import { buildFilename, type TemplateTrack } from './filenameTemplate'
@@ -3392,6 +3398,26 @@ app.whenReady().then(() => {
 
   // Keys under the stats_ prefix (consent state, the anonymous install id)
   // are owned by the stats system and are not reachable from the renderer.
+  // ── Mix Profile + Track Match (Related) ───────────────────
+  // The profile lives in DeepCrated's own database, never in audio tags.
+  ipcMain.handle('mix-profile:get', () => loadMixProfile())
+  ipcMain.handle('mix-profile:save', (_e, profile: unknown, state: unknown) => {
+    if (state !== 'skipped' && state !== 'completed') {
+      return { ok: false, error: 'Invalid survey state' }
+    }
+    try {
+      return { ok: true, ...saveMixProfile(profile, state) }
+    } catch (err) {
+      return { ok: false, error: (err as Error).message }
+    }
+  })
+  ipcMain.handle('match:related', (_e, trackId: unknown, direction: unknown) => {
+    if (typeof trackId !== 'number') return { status: 'not-found' }
+    const dir = direction === 'lift' || direction === 'drop' ? direction : 'similar'
+    return getRelatedTracks(trackId, dir)
+  })
+  ipcMain.handle('match:preview', (_e, profileDraft: unknown) => previewRelated(profileDraft))
+
   ipcMain.handle('settings:get', (_e, key: string) =>
     isReservedSettingKey(key) ? null : getSetting(key)
   )

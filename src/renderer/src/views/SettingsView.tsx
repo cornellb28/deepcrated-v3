@@ -8,6 +8,7 @@ import { ReconciliationModal } from '@renderer/components/ReconciliationModal'
 import { SeratoImportConfirmDialog } from '@renderer/components/SeratoImportConfirmDialog'
 import { StatsConsentSwitch } from '../components/StatsConsentSwitch'
 import { IdentityLookupSwitch } from '../components/IdentityLookupSwitch'
+import { MixingPreferences } from '../components/MixingPreferences'
 import { ArtistCleanSettings } from '../components/ArtistCleanSettings'
 import { useLibraryStore } from '../store/useLibraryStore'
 import { FilenameTemplateEditor } from '../components/FilenameTemplateEditor'
@@ -41,11 +42,12 @@ const SERATO_OVERWRITE_KEY = 'serato_overwrite_existing'
 // whichever tab was open last.
 export const SETTINGS_TAB_KEY = 'settings_tab'
 
-type TabId = 'account' | 'plan' | 'library' | 'serato' | 'privacy'
+type TabId = 'account' | 'plan' | 'library' | 'mixing' | 'serato' | 'privacy'
 const TABS: { id: TabId; label: string }[] = [
   { id: 'account', label: 'Account' },
   { id: 'plan', label: 'Plan' },
   { id: 'library', label: 'Library' },
+  { id: 'mixing', label: 'Mixing' },
   { id: 'serato', label: 'Serato' },
   { id: 'privacy', label: 'Privacy' }
 ]
@@ -56,7 +58,8 @@ function isTabId(value: string | null): value is TabId {
     value === 'plan' ||
     value === 'library' ||
     value === 'serato' ||
-    value === 'privacy'
+    value === 'privacy' ||
+    value === 'mixing'
   )
 }
 
@@ -665,6 +668,17 @@ export function SettingsView({
           </TabsContent>
 
           {/* ── Privacy ─────────────────────────────────────────────── */}
+          {/* ── Mixing ──────────────────────────────────────────────── */}
+          <TabsContent value="mixing">
+            <Section
+              title="Mixing Preferences"
+              description="How you mix: these tune the Related suggestions in the Inspector. Stored in DeepCrated, never in your files."
+              last
+            >
+              <MixingPreferences />
+            </Section>
+          </TabsContent>
+
           <TabsContent value="privacy">
             <Section
               title="Anonymous stats"

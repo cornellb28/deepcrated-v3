@@ -58,8 +58,11 @@ async function run(): Promise<void> {
   const stats = await import('../../src/main/stats')
   const identityEngine = await import('../../src/main/identity/engine')
   const artistRuntime = await import('../../src/main/artist/runtime')
+  const trackMatch = await import('../../src/main/trackMatchService')
 
   const registry: Record<string, (...args: never[]) => unknown> = {
+    // Mix Profile + Track Match (the real service against the real schema).
+    ...(trackMatch as unknown as Record<string, (...args: never[]) => unknown>),
     ...(db as unknown as Record<string, (...args: never[]) => unknown>),
     ...(serato as unknown as Record<string, (...args: never[]) => unknown>),
     ...(seratoImport as unknown as Record<string, (...args: never[]) => unknown>),

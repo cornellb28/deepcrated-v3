@@ -380,6 +380,17 @@ const api = {
   },
 
   // Settings
+  // Mix Profile survey answers and Track Match (Inspector > Related).
+  mixProfile: {
+    get: () => ipcRenderer.invoke('mix-profile:get'),
+    save: (profile: unknown, state: 'skipped' | 'completed') =>
+      ipcRenderer.invoke('mix-profile:save', profile, state)
+  },
+  match: {
+    related: (trackId: number, direction: 'lift' | 'similar' | 'drop') =>
+      ipcRenderer.invoke('match:related', trackId, direction),
+    preview: (profileDraft: unknown) => ipcRenderer.invoke('match:preview', profileDraft)
+  },
   settings: {
     get: (key: string) => ipcRenderer.invoke('settings:get', key),
     set: (key: string, value: string) => ipcRenderer.invoke('settings:set', key, value),

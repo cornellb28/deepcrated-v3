@@ -301,6 +301,21 @@ declare global {
         tracksByColumn: (column: string) => Promise<Track[]>
       }
 
+      // Mix Profile survey + Track Match (main/trackMatchService.ts).
+      mixProfile: {
+        get: () => Promise<StoredMixProfile>
+        save: (
+          profile: MixProfileAnswers,
+          state: 'skipped' | 'completed'
+        ) => Promise<{ ok: boolean; error?: string } & Partial<StoredMixProfile>>
+      }
+      match: {
+        related: (trackId: number, direction: MatchDirection) => Promise<RelatedResult>
+        preview: (profileDraft: MixProfileAnswers) => Promise<{
+          source: { id: number; title: string | null; artist: string | null } | null
+          result: RelatedResult | null
+        }>
+      }
       settings: {
         get: (key: string) => Promise<string | null>
         set: (key: string, value: string) => Promise<{ ok: boolean; error?: string }>
@@ -479,6 +494,52 @@ declare global {
     | 'inconsistent_artist'
     | 'unreadable_audio'
     | 'missing_file'
+
+  // Mirrors src/shared/trackMatch.ts (MixProfile) and main/trackMatchService.ts.
+  type MatchDirection = 'lift' | 'similar' | 'drop'
+  interface MixProfileAnswers {
+    keyMode: 'strict' | 'flexible' | 'loose'
+    bpmWindow: 3 | 6 | 10 | 'wide'
+    halfDouble: boolean
+    energyMovement: 'gradual' | 'swings' | 'manual'
+    gig: 'club' | 'open' | 'wedding' | 'radio' | null
+    variety: 'same_ok' | 'favor_variety'
+    tagWeights: Record<
+      | 'genre'
+      | 'grouping'
+      | 'label'
+      | 'remixer'
+      | 'comment'
+      | 'composer'
+      | 'vibe'
+      | 'venue'
+      | 'custom',
+      number
+    >
+  }
+  interface StoredMixProfile {
+    profile: MixProfileAnswers
+    state: 'defaults' | 'skipped' | 'completed'
+    updatedAt: number | null
+  }
+  interface RelatedItem {
+    id: number
+    title: string | null
+    artist: string | null
+    artwork_hash: string | null
+    score: number
+    reasons: string[]
+  }
+  type RelatedResult =
+    | {
+        status: 'ok'
+        results: RelatedItem[]
+        coldStart: boolean
+        directionByBpm: boolean
+        candidatesScored: number
+      }
+    | { status: 'needs-key-bpm' }
+    | { status: 'not-found' }
 
   interface HealthSummary {
     liveTracks: number

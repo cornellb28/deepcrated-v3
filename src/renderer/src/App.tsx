@@ -5,6 +5,7 @@ import { Sidebar } from './components/Sidebar'
 import { Toolbar } from './components/Toolbar'
 import { LibraryView } from './components/LibraryView'
 import { Inspector } from './components/Inpector'
+import { MixProfilePrompt } from './components/MixProfilePrompt'
 import { FolderView } from './views/FolderView'
 import { SettingsView } from './views/SettingsView'
 import { EmptyState } from './views/EmptyState'
@@ -1038,6 +1039,7 @@ function App(): React.JSX.Element {
           if (folderPath) void performImportFolder(folderPath, importSeratoData)
         }}
       />
+      <MixProfilePrompt />
       <Toaster />
     </div>
   )

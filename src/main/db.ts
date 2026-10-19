@@ -724,6 +724,27 @@ db.exec(`
   );
 `)
 
+// ─── Mix Profile (Track Match preferences) ───────────────────────────────
+// One row per library: the DJ's Mix Profile survey answers as JSON (shape in
+// src/shared/trackMatch.ts). No row = built-in defaults. Additive only.
+// DeepCrated's own data: never written into audio file tags.
+// client_uuid is minted on the first save; updated_at (epoch ms) is set on
+// every write — both for syncing later.
+// TODO(sync): add mix_profile to docs/sync-contract.md. On the first sync
+// pull, a local row that only ever held defaults (survey_state 'skipped')
+// should adopt the cloud row's client_uuid rather than compete with it.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS mix_profile (
+    id           INTEGER PRIMARY KEY CHECK (id = 1),
+    client_uuid  TEXT    NOT NULL,
+    profile_json TEXT    NOT NULL,
+    version      INTEGER NOT NULL DEFAULT 1,
+    survey_state TEXT    NOT NULL CHECK (survey_state IN ('skipped','completed')),
+    updated_at   INTEGER NOT NULL
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_mix_profile_client_uuid ON mix_profile(client_uuid);
+`)
+
 // ─── Sync identity + delimiter (user_version 1 and 2) ────────────────────
 // Must run after every tracks column above exists: the stamping triggers name
 // them. Snapshot first — a real library is about to have columns, triggers and
@@ -2782,6 +2803,141 @@ export function setSetting(key: string, value: string): RunResult {
 // preference a feature no longer has) should leave nothing behind.
 export function deleteSetting(key: string): RunResult {
   return stmts.deleteSetting.run(key)
+}
+
+// ─── Mix Profile ──────────────────────────────────────────
+
+export interface MixProfileRow {
+  client_uuid: string
+  profile_json: string
+  version: number
+  survey_state: 'skipped' | 'completed'
+  updated_at: number
+}
+
+export function getMixProfileRow(): MixProfileRow | null {
+  return (
+    (db
+      .prepare(
+        'SELECT client_uuid, profile_json, version, survey_state, updated_at FROM mix_profile WHERE id = 1'
+      )
+      .get() as MixProfileRow | undefined) ?? null
+  )
+}
+
+// The only writer. Keeps the client_uuid minted on the first save and stamps
+// updated_at every time.
+export function saveMixProfileRow(
+  profileJson: string,
+  version: number,
+  surveyState: 'skipped' | 'completed'
+): MixProfileRow {
+  db.prepare(
+    `INSERT INTO mix_profile (id, client_uuid, profile_json, version, survey_state, updated_at)
+     VALUES (1, @uuid, @json, @version, @state, @now)
+     ON CONFLICT(id) DO UPDATE SET
+       profile_json = excluded.profile_json,
+       version      = excluded.version,
+       survey_state = excluded.survey_state,
+       updated_at   = excluded.updated_at`
+  ).run({ uuid: randomUUID(), json: profileJson, version, state: surveyState, now: Date.now() })
+  return getMixProfileRow() as MixProfileRow
+}
+
+// ─── Track Match candidates ───────────────────────────────
+
+export interface MatchCandidateRow {
+  id: number
+  title: string | null
+  artist: string | null
+  bpm: number | null
+  key_camelot: string | null
+  energy: number | null
+  artwork_hash: string | null
+  genre: string | null
+  grouping: string | null
+  label: string | null
+  remixer: string | null
+  comment: string | null
+  composer: string | null
+}
+
+const MATCH_COLUMNS = `id, title, artist, bpm, key_camelot, energy, artwork_hash,
+  genre, grouping, label, remixer, comment, composer`
+
+export function getMatchTrack(id: number): MatchCandidateRow | null {
+  return (
+    (db.prepare(`SELECT ${MATCH_COLUMNS} FROM tracks WHERE id = ?`).get(id) as
+      MatchCandidateRow | undefined) ?? null
+  )
+}
+
+// The SQL pre-filter: live tracks inside any of the BPM ranges (the window,
+// plus half/double time when allowed) and, unless keys is null, one of the
+// compatible keys. Uses idx_tracks_bpm / idx_tracks_key_camelot. Never the
+// whole library: capped at `limit`.
+// Ordered by tempo distance (counting half/double time when allowed), so the
+// cap keeps the closest tempos rather than an arbitrary slice.
+export function getMatchCandidates(
+  sourceId: number,
+  sourceBpm: number,
+  halfDouble: boolean,
+  bpmRanges: [number, number][],
+  keys: string[] | null,
+  limit: number
+): MatchCandidateRow[] {
+  const distance = halfDouble
+    ? 'MIN(ABS(bpm - @s), ABS(bpm * 2 - @s), ABS(bpm / 2 - @s))'
+    : 'ABS(bpm - @s)'
+  const params: Record<string, number | string> = { id: sourceId, s: sourceBpm }
+  bpmRanges.forEach(([lo, hi], i) => {
+    params[`lo${i}`] = lo
+    params[`hi${i}`] = hi
+  })
+  ;(keys ?? []).forEach((k, i) => {
+    params[`k${i}`] = k
+  })
+  const named = bpmRanges.map((_, i) => `(bpm BETWEEN @lo${i} AND @hi${i})`).join(' OR ')
+  const keyNamed =
+    keys && keys.length > 0 ? `AND key_camelot IN (${keys.map((_, i) => `@k${i}`).join(',')})` : ''
+  return db
+    .prepare(
+      `SELECT ${MATCH_COLUMNS} FROM tracks
+       WHERE missing = 0 AND id <> @id AND (${named}) ${keyNamed}
+       ORDER BY ${distance}, id
+       LIMIT ${Math.max(1, Math.floor(limit))}`
+    )
+    .all(params) as MatchCandidateRow[]
+}
+
+// A track to preview suggestions from (the survey's last screen): one with a
+// Camelot key and a BPM, preferring the most tag data, then the newest.
+export function getMatchPreviewTrackId(): number | null {
+  const row = db
+    .prepare(
+      `SELECT id FROM tracks
+       WHERE missing = 0 AND bpm > 0 AND key_camelot GLOB '[0-9]*[ABab]'
+       ORDER BY (COALESCE(genre,'') <> '') + (COALESCE(grouping,'') <> '')
+              + (COALESCE(label,'') <> '') + (COALESCE(remixer,'') <> '')
+              + (COALESCE(comment,'') <> '') DESC, id DESC
+       LIMIT 1`
+    )
+    .get() as { id: number } | undefined
+  return row?.id ?? null
+}
+
+// Share of live tracks with any tag-backed value Track Match can use — the
+// cold-start test.
+export function getTagCoverage(): { tagged: number; total: number } {
+  return db
+    .prepare(
+      `SELECT
+         SUM(COALESCE(genre,'') <> '' OR COALESCE(grouping,'') <> '' OR COALESCE(label,'') <> ''
+             OR COALESCE(remixer,'') <> '' OR COALESCE(comment,'') <> '') AS tagged,
+         COUNT(*) AS total
+       FROM tracks WHERE missing = 0`
+    )
+    .get() as { tagged: number; total: number }
 }
 
 export function getArtworkPath(trackId: number): string | null {

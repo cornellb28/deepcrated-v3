@@ -3,6 +3,7 @@ import { toast } from 'sonner'
 import { useLibraryStore } from '../store/useLibraryStore'
 import { Badge } from './ui/badge'
 import { fieldToMetaKey, withTrackIdentity } from '../lib/tagMeta'
+import { notifyTrackSaved } from '../lib/trackEvents'
 
 interface TagInputProps {
   trackId: number
@@ -97,6 +98,8 @@ export function TagInput({ trackId, field, label, color = '#7f77dd' }: TagInputP
 
     const value = result.derived ?? null
     store.updateTrack(trackId, { [field]: value } as Partial<Track>)
+    // Saved: Inspector > Related re-ranks shortly after.
+    notifyTrackSaved(trackId)
 
     const fileWrite = await window.api.writeTags(
       track.filepath,

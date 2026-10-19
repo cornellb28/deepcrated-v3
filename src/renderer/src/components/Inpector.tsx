@@ -6,13 +6,14 @@ import { Separator } from '@renderer/components/ui/separator'
 import { TagInput } from './TagInput'
 import { StagePill } from './StagePill'
 import { STAGE_NOUN } from '../lib/stages'
-import { MoveFileButton } from './MoveFileButton'
 import { Input } from '@renderer/components/ui/input'
 import { getYearOptions } from '../utils/years'
 import { useArtworkUrl } from '../hooks/useArtworkUrl'
 import dclogo from '@renderer/assets/crateIcon.png'
 import { fullTrackMeta } from '../lib/tagMeta'
 import { refreshArtists } from '../lib/refreshArtists'
+import { RelatedTracks } from './RelatedTracks'
+import { notifyTrackSaved } from '../lib/trackEvents'
 
 const CAMELOT_KEYS = [
   '1A', '2A', '3A', '4A', '5A', '6A', '7A', '8A', '9A', '10A', '11A', '12A',
@@ -54,6 +55,7 @@ export function Inspector(): React.JSX.Element {
           key_full,
         })
         await window.api.db.markAnalyzed(track.id)
+        notifyTrackSaved(track.id)
 
         // The detected tempo and key have to reach the file as well, or they
         // only ever exist inside DeepCrated — Serato reads BPM off the file's
@@ -178,6 +180,8 @@ export function Inspector(): React.JSX.Element {
       toast.error('Could not save', { description: result.error ?? 'Unknown error' })
       return
     }
+    // Saved: Related (below) re-ranks shortly after.
+    notifyTrackSaved(track.id)
 
     // energy is DeepCrated-only — no tag carries it, so there is nothing to
     // write to the file for it.
@@ -370,10 +374,37 @@ export function Inspector(): React.JSX.Element {
             </button>
             </div>
 
+            {/* Now inspecting: always visible while the fields below scroll. */}
+            <div data-testid="inspector-now" style={{ minWidth: 0, textAlign: 'center' }}>
+              <div
+                title={track.title ?? undefined}
+                style={{
+                  fontSize: '13px',
+                  fontWeight: 500,
+                  color: '#e0e0f0',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }}
+              >
+                {track.title || 'Untitled'}
+              </div>
+              <div
+                title={track.artist ?? undefined}
+                style={{
+                  fontSize: '11px',
+                  color: '#777',
+                  marginTop: '2px',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }}
+              >
+                {track.artist || 'Unknown artist'}
+              </div>
+            </div>
+
             <Separator className="bg-[#1e1e2a]" />
-          </div>
-          <div className="flex" style={{padding: '0 15px'}}>
-            <MoveFileButton track={track} />
           </div>
 
           {/* Scrollable editing section */}
@@ -635,6 +666,8 @@ export function Inspector(): React.JSX.Element {
                 {track.filepath}
               </div>
             </div>
+            <Separator className="bg-[#1e1e2a]" />
+            <RelatedTracks trackId={track.id} />
           </div>
 
         </div>
