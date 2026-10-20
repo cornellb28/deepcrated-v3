@@ -1,0 +1,3 @@
+Chromaprint fpcalc 1.6.1
+https://github.com/acoustid/chromaprint/releases/download/v1.6.1/chromaprint-fpcalc-1.6.1-macos-x86_64.tar.gz
+sha256 0de8947c09dd93c44cece2f5947d408136a3b6692eed726d1f109506500bd773
