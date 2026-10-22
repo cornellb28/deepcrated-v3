@@ -1,10 +1,11 @@
 import React from 'react'
 import { Lock } from 'lucide-react'
+import { openPlans } from '@renderer/lib/website'
 
 // The app-wide "visible but locked" marker for CLOUD features only. The
 // desktop app is free: never put this on a local feature. It is a display of
-// what the plan allows — the server enforces — so a click only routes the DJ
-// to Settings > Plan.
+// what the plan allows — the server enforces — so a click only opens the
+// website's pricing page, the same See plans action used everywhere.
 //
 // Never hide a locked feature and never render it dead-disabled with no
 // explanation: say what unlocks it.
@@ -12,11 +13,11 @@ import { Lock } from 'lucide-react'
 interface LockBadgeProps {
   // The plan that unlocks the feature, e.g. 'Library'.
   requires: string
-  // Routes to Settings > Plan. Omit when already there.
-  onOpenPlan?: () => void
+  // Defaults to See plans. Pass null for a static badge.
+  onOpenPlan?: (() => void) | null
 }
 
-export function LockBadge({ requires, onOpenPlan }: LockBadgeProps): React.JSX.Element {
+export function LockBadge({ requires, onOpenPlan = openPlans }: LockBadgeProps): React.JSX.Element {
   const content = (
     <>
       <Lock size={10} aria-hidden="true" />

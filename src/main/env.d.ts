@@ -13,8 +13,6 @@ interface ImportMetaEnv {
   // sign-in stays hidden while this or MAIN_VITE_AUTH_URL is blank.
   readonly MAIN_VITE_DESKTOP_REDEEM_URL?: string
   readonly MAIN_VITE_AUTH_PASSWORD_RESET_URL?: string
-  readonly MAIN_VITE_ACCOUNT_MANAGEMENT_URL?: string
-  readonly MAIN_VITE_CUSTOMER_PORTAL_URL?: string
   // Optional online track identification (off by default, a Settings
   // toggle). Both must be set or the toggle is unavailable.
   readonly MAIN_VITE_ACOUSTID_API_KEY?: string

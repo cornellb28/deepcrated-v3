@@ -30,7 +30,9 @@ export interface AuthUser {
 }
 
 export type AuthStatus = 'signedOut' | 'awaitingBrowser' | 'signedIn' | 'expired'
-export type AuthDestination = 'signIn' | 'createAccount' | 'passwordReset' | 'account' | 'portal'
+// Account and billing pages are not here: they open by name through
+// websiteLinks.ts, with fixed URLs rather than env vars.
+export type AuthDestination = 'signIn' | 'createAccount' | 'passwordReset'
 
 export interface Entitlement {
   plan: 'free' | 'sync' | 'library' | 'touring'
@@ -66,9 +68,7 @@ const REDEEM_URL = validRedeemUrl(import.meta.env.MAIN_VITE_DESKTOP_REDEEM_URL, 
 const AUTH_URLS: Record<AuthDestination, string | undefined> = {
   signIn: import.meta.env.MAIN_VITE_AUTH_URL,
   createAccount: import.meta.env.MAIN_VITE_AUTH_URL,
-  passwordReset: import.meta.env.MAIN_VITE_AUTH_PASSWORD_RESET_URL,
-  account: import.meta.env.MAIN_VITE_ACCOUNT_MANAGEMENT_URL,
-  portal: import.meta.env.MAIN_VITE_CUSTOMER_PORTAL_URL
+  passwordReset: import.meta.env.MAIN_VITE_AUTH_PASSWORD_RESET_URL
 }
 
 // TODO(auth-handoff): Verify the full round trip against the real website

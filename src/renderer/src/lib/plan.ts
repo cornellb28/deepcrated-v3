@@ -216,6 +216,15 @@ export function describePlan(entitlement: Entitlement | null): PlanSummary {
   }
 }
 
+// The line under the plan name on Settings > Plan: the subscription's health
+// in words when there is something to say ("Renews Nov 3"), else its status.
+export function planStatusLine(entitlement: Entitlement): string {
+  const note = describePlan(entitlement).note
+  if (note) return note
+  const status = entitlement.status.replace(/_/g, ' ')
+  return status[0].toUpperCase() + status.slice(1)
+}
+
 // Short form for the places that have room for a word, not a card — the
 // dashboard account chip and the empty state's signed-in line.
 export function planBadge(entitlement: Entitlement | null): string {

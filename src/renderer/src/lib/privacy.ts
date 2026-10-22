@@ -1,6 +1,7 @@
-// The one place the privacy page URL lives. Placeholder until the real page
-// exists.
-export const PRIVACY_URL = 'https://deepcrate.app/privacy'
+// Shown as the link's href only. Clicking opens it through main by name
+// ('privacy'), which owns the real URL in src/main/websiteLinks.ts; keep the
+// two the same.
+export const PRIVACY_URL = 'https://www.deepcrated.com/privacy'
 
 // Shown under the "Contribute anonymous stats" switch. Changing this wording
 // in a way that matters means bumping CONSENT_TEXT_VERSION in

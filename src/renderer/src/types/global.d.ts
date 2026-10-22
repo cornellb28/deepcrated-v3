@@ -96,7 +96,7 @@ declare global {
         cancelSignIn: () => Promise<{ ok: boolean; state: AuthState }>
         reopenBrowser: () => Promise<{ ok: boolean; error?: string }>
         openDestination: (
-          destination: 'signIn' | 'createAccount' | 'passwordReset' | 'account' | 'portal'
+          destination: 'signIn' | 'createAccount' | 'passwordReset'
         ) => Promise<{ ok: boolean; error?: string }>
         signOut: () => Promise<{ ok: boolean; state: AuthState }>
         refresh: () => Promise<{ ok: boolean; state: AuthState; error?: string }>
@@ -107,7 +107,7 @@ declare global {
       ) => void
       offAuthChanged: () => void
 
-      openExternal: (url: string) => Promise<{ ok: boolean; error?: string }>
+      openWebsite: (name: 'account' | 'plans' | 'privacy') => Promise<{ ok: boolean; error?: string }>
 
       // Stops the Phase 2 analysis pass after the batch in flight. Safe to
       // call when nothing is running.
@@ -838,7 +838,7 @@ declare global {
     persistent: boolean
     offline: boolean
     confirmingPurchase: boolean
-    links: Record<'signIn' | 'createAccount' | 'passwordReset' | 'account' | 'portal', boolean>
+    links: Record<'signIn' | 'createAccount' | 'passwordReset', boolean>
   }
 
   interface ImportProgressPayload {

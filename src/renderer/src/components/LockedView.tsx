@@ -1,6 +1,7 @@
 import React from 'react'
 import { Lock } from 'lucide-react'
 import { Button } from '@renderer/components/ui/button'
+import { openPlans } from '@renderer/lib/website'
 
 // A whole cloud surface that the current plan does not include: shown in
 // place of (or beside) the feature, never instead of explaining it. CLOUD
@@ -12,8 +13,7 @@ interface LockedViewProps {
   // Plan name that unlocks it, e.g. 'Library or Touring'.
   requires: string
   actionLabel?: string
-  // Routes to Settings > Plan (or opens the website's plans, from the Plan
-  // page itself). Omit and no button is shown.
+  // Defaults to the website's pricing page, the one path to plans.
   onAction?: () => void
 }
 
@@ -22,7 +22,7 @@ export function LockedView({
   description,
   requires,
   actionLabel = 'See plans',
-  onAction
+  onAction = openPlans
 }: LockedViewProps): React.JSX.Element {
   return (
     <div
@@ -46,11 +46,9 @@ export function LockedView({
           Available on {requires}
         </div>
       </div>
-      {onAction && (
-        <Button onClick={onAction} variant="outline" size="sm">
-          {actionLabel}
-        </Button>
-      )}
+      <Button onClick={onAction} variant="outline" size="sm">
+        {actionLabel}
+      </Button>
     </div>
   )
 }

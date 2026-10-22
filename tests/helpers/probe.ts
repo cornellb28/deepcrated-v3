@@ -24,6 +24,11 @@ let built = false
 // pointing it at a bare .js file makes it fall back to the app name
 // "Electron", which would send app.getPath('userData') somewhere other than
 // the directory the probe was told to use.
+const PROBE_ENV = {
+  MAIN_VITE_SUPABASE_URL: 'http://127.0.0.1:9',
+  MAIN_VITE_SUPABASE_ANON_KEY: 'probe-anon-key'
+}
+
 function buildProbe(): void {
   if (built) return
   mkdirSync(PROBE_BUILD_DIR, { recursive: true })
@@ -43,6 +48,10 @@ function buildProbe(): void {
       // addon and must stay a real require() resolved from node_modules.
       '--external:electron',
       '--external:better-sqlite3',
+      // electron-vite normally inlines these. Supabase gets an address that
+      // refuses connections, so auth runs its offline paths and nothing
+      // leaves the machine.
+      `--define:import.meta.env=${JSON.stringify(PROBE_ENV)}`,
       `--outfile=${PROBE_BUNDLE}`
     ],
     { stdio: 'pipe' }

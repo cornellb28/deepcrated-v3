@@ -51,6 +51,7 @@ async function run(): Promise<void> {
   const tagWrites = await import('../../src/main/tagWrites')
   const rescanSweep = await import('../../src/main/rescanSweep')
   const authStore = await import('../../src/main/authStore')
+  const auth = await import('../../src/main/auth')
   const moveEngine = await import('../../src/main/moveEngine')
   const filenameTemplate = await import('../../src/main/filenameTemplate')
   const folderRename = await import('../../src/main/folderRename')
@@ -184,6 +185,13 @@ async function run(): Promise<void> {
     // under the probe's throwaway userData dir, which is the only way to
     // find out whether the encrypted blob actually round-trips.
     ...(authStore as unknown as Record<string, (...args: never[]) => unknown>),
+
+    // The real auth module, pointed (by the probe build's define) at a
+    // Supabase URL that refuses connections: a stored session restores as
+    // "signed in, offline", the same as launching with no network.
+    authRestore: (() => auth.restoreSession()) as unknown as (...args: never[]) => unknown,
+    authSignOut: (() => auth.signOut()) as unknown as (...args: never[]) => unknown,
+    authState: (() => auth.getAuthState()) as unknown as (...args: never[]) => unknown,
 
     // editTagsBatch streams results through a callback; collect them so a
     // spec gets the same per-file outcomes the renderer sees over

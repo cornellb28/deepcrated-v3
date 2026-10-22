@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { SwitchButton } from './SwitchButton'
 import { PRIVACY_URL, STATS_CONSENT_COPY } from '../lib/privacy'
+import { openWebsite } from '../lib/website'
 
 // Opt-in switch for anonymous stats. Off until the user turns it on. The
 // renderer only reads and requests the state; what is collected, and whether
@@ -52,7 +53,7 @@ export function StatsConsentSwitch(): React.JSX.Element {
             href={PRIVACY_URL}
             onClick={(e) => {
               e.preventDefault()
-              void window.api.openExternal(PRIVACY_URL)
+              void openWebsite('privacy')
             }}
             style={{ color: '#7f77dd' }}
           >

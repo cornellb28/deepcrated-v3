@@ -963,7 +963,7 @@ function App(): React.JSX.Element {
                   : undefined
               }
             />
-            <AccountChip auth={auth} onAuthChanged={setAuth} />
+            <AccountChip auth={auth} onAuthChanged={setAuth} onOpenSettings={() => setActiveView('settings')} />
           </div>
           {/* Views */}
           {activeView === 'dashboard' &&

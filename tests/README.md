@@ -46,6 +46,12 @@ code has to handle as well:
   with a `main` field. Given a bare `.js` path it falls back to the app name
   "Electron" and resolves `userData` somewhere else entirely.
 
+The probe build also defines `import.meta.env` (electron-vite does this in
+the real build) with a Supabase URL of `http://127.0.0.1:9`, which refuses
+connections. `src/main/auth.ts` therefore runs its offline paths, which is
+what `account-sign-out.spec.ts` relies on: a stored session restores as
+"signed in, offline", and sign-out has to clear it with no network.
+
 ## Serato fixtures, not the developer's library
 
 `tests/helpers/seratoBinary.ts` writes `database V2`, `.crate` and
@@ -80,4 +86,9 @@ Four failure modes they guard against, each of which was a live bug:
 ## Still not covered
 
 The renderer is not exercised anywhere: every spec drives the main process
-directly. Component behaviour needs the `e2e` project working first.
+directly. Component behaviour needs the `e2e` project working first. The
+account chip's decisions (state, menu items, avatar fallback, plan label)
+live in `src/renderer/src/lib/accountChip.ts` so `account-chip.spec.ts` can
+cover them in plain Node; the chip and Profile dialog themselves are
+checked by hand. `website-ipc.spec.ts` checks the `website:open` wiring by
+reading both sides of the bridge, not by a live IPC round trip.

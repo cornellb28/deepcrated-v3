@@ -24,6 +24,7 @@ import {
   setAuthStateListener,
   stopSessionRefresh
 } from './auth'
+import { WEBSITE_LINKS, openWebsiteLink } from './websiteLinks'
 import { sweepTracks, sweepFolders } from './rescanSweep'
 import {
   storeArtwork,
@@ -1777,8 +1778,13 @@ function createWindow(): void {
     win.show()
   })
 
+  // No in-app windows, and a link the renderer opens only reaches the system
+  // browser when it is one of the fixed website pages. Everything else is
+  // dropped: the renderer does not get to pick URLs.
   win.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url)
+    if ((Object.values(WEBSITE_LINKS) as string[]).includes(details.url)) {
+      void shell.openExternal(details.url)
+    }
     return { action: 'deny' }
   })
 
@@ -2067,28 +2073,16 @@ app.whenReady().then(() => {
   ipcMain.handle('auth:cancel-sign-in', () => ({ ok: true, state: cancelBrowserAuth() }))
   ipcMain.handle('auth:reopen-browser', () => reopenAuthBrowser())
   ipcMain.handle('auth:open-destination', (_e, destination: AuthDestination) => {
-    if (!['signIn', 'createAccount', 'passwordReset', 'account', 'portal'].includes(destination)) {
+    if (!['signIn', 'createAccount', 'passwordReset'].includes(destination)) {
       return { ok: false, error: 'Unknown account website destination.' }
     }
     return openAuthDestination(destination)
   })
 
-  // Scheme-guarded on purpose. The renderer is ours, but "open whatever URL
-  // you are handed" is a capability worth narrowing regardless — file:// and
-  // custom schemes can launch local handlers, and this only ever needs to
-  // open a web page.
-  ipcMain.handle('shell:open-external', async (_e, url: string) => {
-    try {
-      const parsed = new URL(url)
-      if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
-        return { ok: false, error: 'Only http(s) links can be opened.' }
-      }
-      await shell.openExternal(url)
-      return { ok: true }
-    } catch (err) {
-      return { ok: false, error: (err as Error).message }
-    }
-  })
+  // The renderer names a page ('account', 'plans', 'privacy'); main owns the
+  // URL. There is deliberately no "open this URL" channel — see
+  // websiteLinks.ts.
+  ipcMain.handle('website:open', (_e, name: unknown) => openWebsiteLink(name, shell.openExternal))
 
   ipcMain.handle('auth:sign-out', async () => ({ ok: true, state: await signOut() }))
   ipcMain.handle('auth:refresh', async () => ({ ok: true, state: await refreshAccountState() }))

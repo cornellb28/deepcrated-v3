@@ -10,8 +10,8 @@ Read `deepcrate-account-contract` first. The desktop app only **reads** entitlem
 - Read the signed-in user's own row from Supabase (RLS scopes it). Refresh on sign-in, app focus, and after a deep-link return.
 - Cache the last known entitlement locally so the **local-first app opens offline**. The trust window is an open decision: leave a marked TODO, don't invent a number.
 - A local SQLite table or column for the cache is a data-layer change: **confirm before implementing.**
-- Gated cloud/mobile features use the app-wide **visible-but-locked** pattern: never hidden, never dead-disabled. Reuse `LockedView` and `LockBadge`; both route to **Settings > Plan**.
-- Settings > Plan opens the website via `shell.openExternal`. No embedded Stripe or card forms.
+- Gated cloud/mobile features use the app-wide **visible-but-locked** pattern: never hidden, never dead-disabled. Reuse `LockedView` and `LockBadge`; both default to the one **See plans** action (`openPlans()`), which opens the website's pricing page.
+- Settings > Plan shows plan label and status, plus See plans. No prices in the app. Website pages open by name over `website:open` (fixed URLs in `src/main/websiteLinks.ts`); the renderer never passes a URL. No embedded Stripe or card forms.
 - The desktop app itself is free: don't lock existing local features.
 
 **Done means:** subscribe on the website and the app updates; cancel and it updates; offline launch works; verified with Stripe test mode.

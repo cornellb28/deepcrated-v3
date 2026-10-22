@@ -12,8 +12,8 @@ import { MixingPreferences } from '../components/MixingPreferences'
 import { ArtistCleanSettings } from '../components/ArtistCleanSettings'
 import { useLibraryStore } from '../store/useLibraryStore'
 import { FilenameTemplateEditor } from '../components/FilenameTemplateEditor'
-import { describePlan } from '../lib/plan'
-import { PlanTiers } from '../components/PlanTiers'
+import { describePlan, planStatusLine } from '../lib/plan'
+import { openPlans } from '../lib/website'
 
 // Settings as a full page rather than a modal. A modal was wrong for this:
 // it capped the content at 440px with everything stacked in one scroll, and
@@ -62,8 +62,6 @@ function isTabId(value: string | null): value is TabId {
     value === 'mixing'
   )
 }
-
-const UPGRADE_URL = import.meta.env.RENDERER_VITE_UPGRADE_URL
 
 // One spacing scale for the whole page. Every gap below is one of these
 // rather than a number picked per-element, which is what keeps three tabs of
@@ -368,7 +366,7 @@ export function SettingsView({
               last
             >
               <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', alignItems: 'flex-start' }}>
-                <AccountChip auth={auth} onAuthChanged={onAuthChanged} showExpiredPrompt />
+                <AccountChip auth={auth} onAuthChanged={onAuthChanged} onOpenSettings={() => selectTab('account')} showExpiredPrompt />
                 {!auth?.configured && (
                   <div style={{ fontSize: '11px', color: '#ba7517', lineHeight: 1.5 }}>
                     Supabase is not configured. Fill in the MAIN_VITE_SUPABASE_URL and anon key settings to enable account sign-in.
@@ -407,7 +405,7 @@ export function SettingsView({
                   </div>
                   <div style={{ fontSize: '10px', color: '#555', marginTop: '3px' }}>
                     {auth?.user && auth.entitlement
-                      ? auth.entitlement.status
+                      ? planStatusLine(auth.entitlement)
                       : auth?.user
                         ? 'Sign in online to read plan'
                         : 'Sign in to view your plan'}
@@ -423,13 +421,16 @@ export function SettingsView({
                 </div>
               )}
               {/* TODO: Persist an entitlement cache only after its storage and offline trust policy are approved. */}
-              <PlanTiers
-                entitlement={auth?.entitlement ?? null}
-                signedIn={auth?.status === 'signedIn'}
-                onSeePlans={
-                  UPGRADE_URL ? () => void window.api.openExternal(UPGRADE_URL) : undefined
-                }
-              />
+              {/* Prices and plan details live on the website's pricing page, not here. */}
+              <div style={{ marginTop: SPACE.betweenBlocks }}>
+                <Button onClick={openPlans} variant="outline" size="sm">
+                  See plans
+                </Button>
+                <div style={{ fontSize: '11px', color: '#555', lineHeight: 1.6, marginTop: '8px' }}>
+                  The DeepCrated desktop app is free, with or without an account. Plans add cloud sync
+                  and mobile, and are bought and managed on the website.
+                </div>
+              </div>
             </Section>
           </TabsContent>
 

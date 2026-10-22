@@ -35,7 +35,7 @@ interface AuthStatePayload {
   persistent: boolean
   offline: boolean
   confirmingPurchase: boolean
-  links: Record<'signIn' | 'createAccount' | 'passwordReset' | 'account' | 'portal', boolean>
+  links: Record<'signIn' | 'createAccount' | 'passwordReset', boolean>
   error?: string
   // Set only on the state pushed after the one-time-code exchange succeeds.
   justSignedIn?: boolean
@@ -194,8 +194,9 @@ const api = {
   // process loaded them. See staleBuild.ts.
   buildStatus: () => ipcRenderer.invoke('app:build-status'),
 
-  // Opens a web page in the system browser. Main validates the scheme.
-  openExternal: (url: string) => ipcRenderer.invoke('shell:open-external', url),
+  // Opens a DeepCrated website page in the system browser, by name. Main
+  // maps the name to a fixed URL; there is no way to pass one.
+  openWebsite: (name: 'account' | 'plans' | 'privacy') => ipcRenderer.invoke('website:open', name),
 
   // ── Auth ────────────────────────────────────────────────────────────
   // No token crosses this bridge. Main holds the session and makes every
@@ -207,7 +208,7 @@ const api = {
     createAccount: () => ipcRenderer.invoke('auth:create-account'),
     cancelSignIn: () => ipcRenderer.invoke('auth:cancel-sign-in'),
     reopenBrowser: () => ipcRenderer.invoke('auth:reopen-browser'),
-    openDestination: (destination: 'signIn' | 'createAccount' | 'passwordReset' | 'account' | 'portal') =>
+    openDestination: (destination: 'signIn' | 'createAccount' | 'passwordReset') =>
       ipcRenderer.invoke('auth:open-destination', destination),
     signOut: () => ipcRenderer.invoke('auth:sign-out'),
     refresh: () => ipcRenderer.invoke('auth:refresh')
