@@ -1,0 +1,132 @@
+name: Release
+
+# Builds the macOS app and attaches it to a draft GitHub Release.
+#
+#   Release:  bump "version" in package.json, commit, then
+#               git tag v1.2.3 && git push origin v1.2.3
+#   Dry run:  Actions tab -> Release -> Run workflow. Builds and keeps the
+#             installers as a workflow artifact; creates no release.
+#
+# Secrets (Settings -> Secrets and variables -> Actions). None are in the repo.
+#   Needed for the build (inlined into the app by electron-vite):
+#     MAIN_VITE_SUPABASE_URL, MAIN_VITE_SUPABASE_ANON_KEY
+#   Optional, same mechanism; leave unset to leave the feature off:
+#     RENDERER_VITE_UPGRADE_URL, MAIN_VITE_AUTH_URL, MAIN_VITE_DESKTOP_REDEEM_URL,
+#     MAIN_VITE_AUTH_PASSWORD_RESET_URL, MAIN_VITE_ACCOUNT_MANAGEMENT_URL,
+#     MAIN_VITE_CUSTOMER_PORTAL_URL, MAIN_VITE_ACOUSTID_API_KEY, MAIN_VITE_MB_CONTACT
+#   Optional, mac code signing (unsigned build if CSC_LINK is unset):
+#     CSC_LINK (base64 .p12), CSC_KEY_PASSWORD
+#   The upload uses the built-in GITHUB_TOKEN. No personal access token needed.
+#   NEVER add the Supabase service_role key here; it must not ship in the app.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+# Read-only by default; only the release job below gets write access.
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build (macOS arm64)
+    runs-on: macos-14
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check tag matches package.json version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          pkg="v$(node -p "require('./package.json').version")"
+          if [ "$pkg" != "$GITHUB_REF_NAME" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match package.json version $pkg" >&2
+            exit 1
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: sidecar/requirements.txt
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck and unit tests
+        run: |
+          npm run typecheck
+          npm run test:unit
+
+      # PyInstaller does not cross-compile, so this builds the analyze and
+      # edit_tags executables natively on the runner (see sidecar/build.sh).
+      - name: Build Python sidecar
+        run: |
+          python -m venv sidecar/.venv
+          sidecar/.venv/bin/pip install -r sidecar/requirements.txt pyinstaller
+          bash sidecar/build.sh
+
+      - name: Build and package app
+        env:
+          MAIN_VITE_SUPABASE_URL: ${{ secrets.MAIN_VITE_SUPABASE_URL }}
+          MAIN_VITE_SUPABASE_ANON_KEY: ${{ secrets.MAIN_VITE_SUPABASE_ANON_KEY }}
+          RENDERER_VITE_UPGRADE_URL: ${{ secrets.RENDERER_VITE_UPGRADE_URL }}
+          MAIN_VITE_AUTH_URL: ${{ secrets.MAIN_VITE_AUTH_URL }}
+          MAIN_VITE_DESKTOP_REDEEM_URL: ${{ secrets.MAIN_VITE_DESKTOP_REDEEM_URL }}
+          MAIN_VITE_AUTH_PASSWORD_RESET_URL: ${{ secrets.MAIN_VITE_AUTH_PASSWORD_RESET_URL }}
+          MAIN_VITE_ACCOUNT_MANAGEMENT_URL: ${{ secrets.MAIN_VITE_ACCOUNT_MANAGEMENT_URL }}
+          MAIN_VITE_CUSTOMER_PORTAL_URL: ${{ secrets.MAIN_VITE_CUSTOMER_PORTAL_URL }}
+          MAIN_VITE_ACOUSTID_API_KEY: ${{ secrets.MAIN_VITE_ACOUSTID_API_KEY }}
+          MAIN_VITE_MB_CONTACT: ${{ secrets.MAIN_VITE_MB_CONTACT }}
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          CSC_IDENTITY_AUTO_DISCOVERY: ${{ secrets.CSC_LINK != '' && 'true' || 'false' }}
+        # --publish never: electron-builder only builds. Uploading is done by
+        # the release job so the build job needs no write access.
+        run: npx electron-vite build && npx electron-builder --mac --publish never
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installers-macos
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            dist/*.dmg
+            dist/*.zip
+            dist/*.blockmap
+            dist/latest*.yml
+
+  release:
+    name: Publish draft release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create draft release and upload installers
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          ls -l artifacts
+          gh release create "$GITHUB_REF_NAME" artifacts/* \
+            --draft \
+            --title "DeepCrated $GITHUB_REF_NAME" \
+            --generate-notes

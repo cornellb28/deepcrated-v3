@@ -11,6 +11,13 @@ files:
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
 asarUnpack:
   - resources/**
+# The packaged app runs the PyInstaller sidecar from
+# process.resourcesPath/sidecar/<analyze|edit_tags> (src/main/sidecar.ts).
+# Build it first with sidecar/build.sh; without this block the installer
+# ships with no sidecar and analysis and tag edits fail in the packaged app.
+extraResources:
+  - from: sidecar/dist
+    to: sidecar
 # Deep link for the OAuth and password-reset callbacks. app.setAsDefault-
 # ProtocolClient registers this at runtime, which is what makes it work in
 # dev, but a PACKAGED app needs the scheme declared in its bundle too:
