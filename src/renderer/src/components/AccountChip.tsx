@@ -3,19 +3,18 @@ import { toast } from 'sonner'
 import { LoaderCircle, ChevronDown } from 'lucide-react'
 import { Button } from '@renderer/components/ui/button'
 import { describePlan } from '@renderer/lib/plan'
+import { accountMenuItems, type AccountMenuKey } from '@renderer/lib/accountMenu'
 
 interface AccountChipProps {
   auth: AuthState | null
   onAuthChanged: (state: AuthState) => void
   showExpiredPrompt?: boolean
+  // Opens Settings, optionally on a given tab. When absent (the chip shown inside
+  // Settings itself) the Profile and Settings entries are not offered.
+  onOpenSettings?: (tab?: 'account') => void
 }
 
 const ACCENT = '#7f77dd'
-const MENU_ITEMS = [
-  { key: 'account', label: 'Manage account' },
-  { key: 'portal', label: 'Manage subscription' },
-  { key: 'passwordReset', label: 'Reset password' }
-] as const
 
 function initials(user: AuthUser | null): string {
   const source = user?.displayName?.trim() || user?.email?.trim() || ''
@@ -60,7 +59,8 @@ function Avatar({ user }: { user: AuthUser | null }): React.JSX.Element {
 export function AccountChip({
   auth,
   onAuthChanged,
-  showExpiredPrompt = false
+  showExpiredPrompt = false,
+  onOpenSettings
 }: AccountChipProps): React.JSX.Element | null {
   const [menuOpen, setMenuOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
@@ -89,6 +89,13 @@ export function AccountChip({
     if (!result.ok) toast.error('Could not open website', { description: result.error })
   }
 
+  function chooseMenuItem(key: AccountMenuKey): void {
+    setMenuOpen(false)
+    if (key === 'profile') onOpenSettings?.('account')
+    else if (key === 'settings') onOpenSettings?.()
+    else void openDestination('account')
+  }
+
   async function handleReopen(): Promise<void> {
     const result = await window.api.auth.reopenBrowser()
     if (!result.ok) toast.error('Could not reopen browser', { description: result.error })
@@ -109,6 +116,10 @@ export function AccountChip({
   const user = auth.user
   const paidPlan = auth.entitlement?.plan !== undefined && auth.entitlement.plan !== 'free'
   const displayName = user?.displayName || user?.email || 'Account'
+  const menuItems = accountMenuItems({
+    canOpenSettings: onOpenSettings !== undefined,
+    accountLinkConfigured: auth.links.account
+  })
 
   if (auth.status === 'awaitingBrowser') {
     return (
@@ -186,8 +197,8 @@ export function AccountChip({
           <div style={{ padding: '9px 12px', borderBottom: '0.5px solid #252535', fontSize: '11px', color: '#777', overflowWrap: 'anywhere' }}>
             {user?.email ?? displayName}
           </div>
-          {MENU_ITEMS.map((item) => auth.links[item.key] && (
-            <button key={item.key} type="button" role="menuitem" onClick={() => void openDestination(item.key)} style={menuItemStyle}>
+          {menuItems.map((item) => (
+            <button key={item.key} type="button" role="menuitem" onClick={() => chooseMenuItem(item.key)} style={menuItemStyle}>
               {item.label}
             </button>
           ))}

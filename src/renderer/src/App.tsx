@@ -69,6 +69,24 @@ function App(): React.JSX.Element {
     // the last view that genuinely survives.
     if (isRestorable(next)) void window.api.settings.set(LAST_VIEW_KEY, next)
   }, [])
+  // Asks Settings to open on a specific tab (the account chip's Profile entry).
+  // The nonce makes a repeat request for the same tab count as a new one.
+  const [settingsTabRequest, setSettingsTabRequest] = useState<{
+    tab: 'account'
+    nonce: number
+  } | null>(null)
+  const openSettings = useCallback(
+    (tab?: 'account'): void => {
+      setSettingsTabRequest(tab ? { tab, nonce: Date.now() } : null)
+      setActiveView('settings')
+    },
+    [setActiveView]
+  )
+  // A tab request only applies to the visit it was made for; leaving Settings
+  // by any other route must not force that tab on the next visit.
+  useEffect(() => {
+    if (activeView !== 'settings') setSettingsTabRequest(null)
+  }, [activeView])
   // null = still checking. Main restores any stored session off the critical
   // path of window creation and pushes the answer over auth:changed, so
   // there is a real moment where we do not yet know — rendering the login
@@ -924,7 +942,7 @@ function App(): React.JSX.Element {
                   : undefined
               }
             />
-            <AccountChip auth={auth} onAuthChanged={setAuth} />
+            <AccountChip auth={auth} onAuthChanged={setAuth} onOpenSettings={openSettings} />
           </div>
           {/* Views */}
           {activeView === 'dashboard' &&
@@ -995,6 +1013,7 @@ function App(): React.JSX.Element {
               onRootsChanged={reloadRoots}
               auth={auth}
               onAuthChanged={setAuth}
+              requestedTab={settingsTabRequest}
               onBack={() => setActiveView('dashboard')}
             />
           )}

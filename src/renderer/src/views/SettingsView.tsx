@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { AccountProfile } from '@renderer/components/AccountProfile'
 import { AccountChip } from '@renderer/components/AccountChip'
@@ -12,7 +12,7 @@ import { ArtistCleanSettings } from '../components/ArtistCleanSettings'
 import { useLibraryStore } from '../store/useLibraryStore'
 import { FilenameTemplateEditor } from '../components/FilenameTemplateEditor'
 import { describePlan } from '../lib/plan'
-import { PlanTiers } from '../components/PlanTiers'
+import { SeePlans } from '../components/SeePlans'
 
 // Settings as a full page rather than a modal. A modal was wrong for this:
 // it capped the content at 440px with everything stacked in one scroll, and
@@ -29,6 +29,9 @@ interface SettingsViewProps {
   // the stored session has finished restoring, and while signed out.
   auth: AuthState | null
   onAuthChanged: (state: AuthState) => void
+  // Set when something outside (the account chip's Profile entry) wants a
+  // specific tab. Wins over the remembered tab.
+  requestedTab?: { tab: TabId; nonce: number } | null
   onBack: () => void
 }
 
@@ -157,9 +160,12 @@ export function SettingsView({
   onRootsChanged,
   auth,
   onAuthChanged,
+  requestedTab,
   onBack
 }: SettingsViewProps): React.JSX.Element {
-  const [tab, setTab] = useState<TabId>('account')
+  const [tab, setTab] = useState<TabId>(requestedTab?.tab ?? 'account')
+  // Read inside the mount effect below, which must not clobber a requested tab.
+  const hadRequestedTab = useRef(requestedTab != null)
   const [adding, setAdding] = useState(false)
   const [rescanning, setRescanning] = useState(false)
   const analysisProgress = useLibraryStore((s) => s.analysisProgress)
@@ -185,12 +191,18 @@ export function SettingsView({
       if (cancelled) return
       setSeratoOverride(override || null)
       setOverwriteExisting(overwrite !== 'false')
-      if (isTabId(storedTab)) setTab(storedTab)
+      if (isTabId(storedTab) && !hadRequestedTab.current) setTab(storedTab)
     })
     return () => {
       cancelled = true
     }
   }, [])
+
+  useEffect(() => {
+    if (!requestedTab) return
+    setTab(requestedTab.tab)
+    void window.api.settings.set(SETTINGS_TAB_KEY, requestedTab.tab)
+  }, [requestedTab])
 
   function selectTab(next: string): void {
     if (!isTabId(next)) return
@@ -420,8 +432,7 @@ export function SettingsView({
                 </div>
               )}
               {/* TODO: Persist an entitlement cache only after its storage and offline trust policy are approved. */}
-              <PlanTiers
-                entitlement={auth?.entitlement ?? null}
+              <SeePlans
                 signedIn={auth?.status === 'signedIn'}
                 onSeePlans={
                   UPGRADE_URL ? () => void window.api.openExternal(UPGRADE_URL) : undefined
