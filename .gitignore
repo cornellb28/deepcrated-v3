@@ -6,6 +6,7 @@ out
 .next
 *.log*
 sidecar/.venv/
+sidecar/build/
 tests/.probe
 test-results
 playwright-report
