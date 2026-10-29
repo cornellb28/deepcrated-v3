@@ -13,7 +13,8 @@ import {
   clearFlow,
   getPendingFlow,
   runHandoff,
-  validRedeemUrl
+  validRedeemUrl,
+  diag
 } from './authCallback'
 import { refreshDelayMs, NETWORK_RETRY_DELAY_MS } from './sessionRefresh'
 
@@ -209,7 +210,28 @@ function scheduleRefresh(session: Session): void {
   refreshTimer.unref?.()
 }
 
+// TODO(handoff-diag): remove. Which metadata fields carry a photo, and the
+// photo's HOST only, so the avatar can be checked against the CSP.
+function diagAvatar(session: Session): void {
+  const metadata = session.user?.user_metadata ?? {}
+  const user = userFrom(session)
+  let avatarHost: string | null = null
+  try {
+    avatarHost = user?.avatarUrl ? new URL(user.avatarUrl).host : null
+  } catch {
+    avatarHost = 'unparseable'
+  }
+  diag('avatar', {
+    provider: user?.provider ?? null,
+    hasUserMetadata: Object.keys(metadata).length > 0,
+    hasAvatarUrl: typeof metadata.avatar_url === 'string',
+    hasPicture: typeof metadata.picture === 'string',
+    avatarHost
+  })
+}
+
 async function adoptSession(session: Session): Promise<AuthState> {
+  diagAvatar(session) // TODO(handoff-diag): remove.
   currentSession = session
   cachedUser = userFrom(session)
   offline = false
@@ -346,6 +368,8 @@ export async function completeHandoffCallback(rawUrl: string): Promise<CallbackR
       redeemUrl: REDEEM_URL,
       setSession: async (tokens) => {
         const { data, error } = await getClient().auth.setSession(tokens)
+        // TODO(handoff-diag): remove. Error NAME only, never the message.
+        if (error) diag('setSession:error', { name: error.name, status: error.status ?? null })
         return error || !data.session ? null : data.session
       },
       adopt: async (session) => {

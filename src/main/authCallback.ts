@@ -15,6 +15,14 @@
 
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 
+// TODO(handoff-diag): TEMPORARY stage-only diagnostics for the broken sign-in.
+// Logs a stage name and shapes (status class, field presence, error NAME) and
+// never a key, verifier, state, token, URL or email. Remove every diag() call
+// and this function once the handoff is confirmed working.
+export function diag(stage: string, detail?: Record<string, string | number | boolean | null>): void {
+  console.info(`[auth-diag] ${stage}`, detail ?? '')
+}
+
 // The scheme the app registers and the website should emit.
 export const CALLBACK_PROTOCOL = 'deepcrated'
 // The scheme this app used before the rename. Still registered and accepted so
@@ -200,6 +208,8 @@ export async function redeemKey(
       redirect: 'error',
       signal: controller.signal
     })
+    // TODO(handoff-diag): remove.
+    diag('redeem:response', { statusClass: `${Math.floor(response.status / 100)}xx` })
     if (!response.ok) return null
     const body = (await response.json()) as Partial<RedeemedTokens> | null
     if (
@@ -209,10 +219,19 @@ export async function redeemKey(
       !body.access_token ||
       !body.refresh_token
     ) {
+      // TODO(handoff-diag): remove.
+      diag('redeem:bad-body', {
+        isObject: typeof body === 'object' && body !== null,
+        accessToken: typeof body?.access_token,
+        refreshToken: typeof body?.refresh_token
+      })
       return null
     }
     return { access_token: body.access_token, refresh_token: body.refresh_token }
-  } catch {
+  } catch (error) {
+    // TODO(handoff-diag): remove. A redirect under redirect:'error' and a
+    // timeout abort both land here; the name tells them apart.
+    diag('redeem:threw', { name: (error as Error)?.name ?? 'unknown' })
     return null
   } finally {
     clearTimeout(timer)
@@ -236,11 +255,15 @@ export interface HandoffDeps {
 export type HandoffOutcome = 'ignored' | 'ok' | 'failed' | 'invalid'
 
 export async function runHandoff(rawUrl: string, deps: HandoffDeps): Promise<HandoffOutcome> {
+  // TODO(handoff-diag): remove every diag() call in this function.
   const parsed = parseCallbackUrl(rawUrl)
+  diag('parse', { kind: parsed.kind })
   if (parsed.kind === 'none') return 'ignored'
   if (parsed.kind === 'invalid') return 'invalid'
 
+  const hadFlow = getPendingFlow(deps.now) !== null
   const redemption = consumeFlow(parsed.key, parsed.state, deps.now)
+  diag('consumeFlow', { hadPendingFlow: hadFlow, stateMatched: redemption !== null })
   if (!redemption) return 'ignored'
 
   const tokens = await redeemKey(
@@ -249,13 +272,19 @@ export async function runHandoff(rawUrl: string, deps: HandoffDeps): Promise<Han
     redemption.verifier,
     deps.fetchImpl
   )
+  diag('redeem', { gotTokens: tokens !== null })
   if (!tokens) return 'failed'
+  let stage = 'setSession'
   try {
     const session = await deps.setSession(tokens)
+    diag('setSession', { gotSession: session !== null })
     if (!session) return 'failed'
+    stage = 'adopt'
     await deps.adopt(session)
+    diag('adopt', { ok: true })
     return 'ok'
-  } catch {
+  } catch (error) {
+    diag(`${stage}:threw`, { name: (error as Error)?.name ?? 'unknown' })
     return 'failed'
   }
 }
