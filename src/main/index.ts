@@ -1757,6 +1757,12 @@ function createWindow(): void {
     }
   })
   mainWindow = win
+  // On macOS the app outlives its window. Without this, mainWindow keeps
+  // pointing at a destroyed window and the next second-instance, deep link or
+  // watcher event throws "Object has been destroyed".
+  win.on('closed', () => {
+    if (mainWindow === win) mainWindow = null
+  })
   win.on('focus', () => {
     void refreshAccountState()
   })
@@ -1799,10 +1805,13 @@ if (!gotSingleInstanceLock) {
     if (url) void handleAuthCallback(url)
 
     // Whether or not it was a deep link, the DJ just tried to open the app:
-    // surface the window they already have.
+    // surface the window they already have, or reopen it if they closed it
+    // (macOS keeps the app running with no window, as 'activate' handles).
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore()
       mainWindow.focus()
+    } else if (app.isReady()) {
+      createWindow()
     }
   })
 }

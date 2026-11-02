@@ -942,7 +942,9 @@ function App(): React.JSX.Element {
                   : undefined
               }
             />
-            <AccountChip auth={auth} onAuthChanged={setAuth} onOpenSettings={openSettings} />
+            <div style={{ marginLeft: 'auto' }}>
+              <AccountChip auth={auth} onAuthChanged={setAuth} onOpenSettings={openSettings} />
+            </div>
           </div>
           {/* Views */}
           {activeView === 'dashboard' &&
