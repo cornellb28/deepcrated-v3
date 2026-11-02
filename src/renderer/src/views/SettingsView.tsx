@@ -377,7 +377,10 @@ export function SettingsView({
               last
             >
               <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', alignItems: 'flex-end' }}>
-                <AccountChip auth={auth} onAuthChanged={onAuthChanged} showExpiredPrompt />
+                <div style={{ marginLeft: 'auto' }}>
+                  <AccountChip auth={auth} onAuthChanged={onAuthChanged} showExpiredPrompt />
+                </div>
+
                 {!auth?.configured && (
                   <div style={{ fontSize: '11px', color: '#ba7517', lineHeight: 1.5 }}>
                     Supabase is not configured. Fill in the MAIN_VITE_SUPABASE_URL and anon key settings to enable account sign-in.
