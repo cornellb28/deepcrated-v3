@@ -376,7 +376,7 @@ export function SettingsView({
               description="Sign-in is optional. The desktop library remains fully available without an account."
               last
             >
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', alignItems: 'flex-start' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', alignItems: 'flex-end' }}>
                 <AccountChip auth={auth} onAuthChanged={onAuthChanged} showExpiredPrompt />
                 {!auth?.configured && (
                   <div style={{ fontSize: '11px', color: '#ba7517', lineHeight: 1.5 }}>
