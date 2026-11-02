@@ -24,6 +24,9 @@ function initials(user: AuthUser | null): string {
 function Avatar({ user }: { user: AuthUser | null }): React.JSX.Element {
   const [imageFailed, setImageFailed] = useState(false)
   const photo = user?.avatarUrl
+  // A failure belongs to one URL. Without this, a photo that failed once
+  // (offline, a CSP block) hides every later photo until the app restarts.
+  useEffect(() => setImageFailed(false), [photo])
   return (
     <span
       aria-hidden="true"
@@ -48,17 +51,7 @@ function Avatar({ user }: { user: AuthUser | null }): React.JSX.Element {
           src={photo}
           alt=""
           referrerPolicy="no-referrer"
-          onError={() => {
-            // TODO(handoff-diag): remove. Host only; a CSP block also lands here.
-            let host = 'unparseable'
-            try {
-              host = new URL(photo).host
-            } catch {
-              // keep 'unparseable'
-            }
-            console.warn('[auth-diag] avatar image failed to load', { host })
-            setImageFailed(true)
-          }}
+          onError={() => setImageFailed(true)}
           style={{ width: '100%', height: '100%', objectFit: 'cover' }}
         />
       ) : initials(user)}

@@ -286,6 +286,41 @@ test('a malformed redeem body, or a rejected setSession, is a failure', async ()
   expect(second.adopted).toHaveLength(0)
 })
 
+// The packaged build that shipped with the apex host: the redeem URL answered
+// 308 to www, fetch (redirect: 'error') rejected, and the DJ saw only the
+// generic "expired or invalid" toast.
+test('a redeem fetch that rejects on a redirect fails before setSession', async () => {
+  const flow = beginFlow('https://example.com/c', 'signin')
+  let setSessionCalls = 0
+  const fakeFetch = (async () => {
+    throw new TypeError('unexpected redirect')
+  }) as typeof fetch
+  const { adopted, deps: d } = deps({
+    fetchImpl: fakeFetch,
+    setSession: async () => {
+      setSessionCalls++
+      return { user: 'u' }
+    }
+  })
+
+  expect(await runHandoff(`${BASE}?key=k&state=${flow.state}`, d)).toBe('failed')
+  expect(setSessionCalls).toBe(0)
+  expect(adopted).toHaveLength(0)
+  expect(getPendingFlow()).toBeNull()
+})
+
+test('a redirecting redeem endpoint is refused, not followed', async () => {
+  // The redirect target would hand out tokens, so only refusing the redirect
+  // makes this null.
+  respond = (res) => {
+    respond = (next) => next.end(JSON.stringify(TOKENS))
+    res.statusCode = 308
+    res.setHeader('Location', '/elsewhere')
+    res.end()
+  }
+  expect(await redeemKey(redeemUrl, 'k', 'v')).toBeNull()
+})
+
 test('an unreachable endpoint fails rather than throwing', async () => {
   const tokens = await redeemKey('http://127.0.0.1:1/redeem', 'k', 'v')
   expect(tokens).toBeNull()
