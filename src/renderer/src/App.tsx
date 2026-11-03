@@ -924,7 +924,7 @@ function App(): React.JSX.Element {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            minHeight: '38px',
+            minHeight: '50px',
             paddingRight: '16px',
             background: '#0e0e12',
             borderBottom: '0.5px solid #1e1e2a',
