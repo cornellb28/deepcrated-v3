@@ -8,9 +8,8 @@ import { accountMenuItems, type AccountMenuKey } from '@renderer/lib/accountMenu
 interface AccountChipProps {
   auth: AuthState | null
   onAuthChanged: (state: AuthState) => void
-  showExpiredPrompt?: boolean
-  // Opens Settings, optionally on a given tab. When absent (the chip shown inside
-  // Settings itself) the Profile and Settings entries are not offered.
+  // Opens Settings, optionally on a given tab. When absent the Settings entry
+  // is not offered.
   onOpenSettings?: (tab?: 'account') => void
 }
 
@@ -62,7 +61,6 @@ function Avatar({ user }: { user: AuthUser | null }): React.JSX.Element {
 export function AccountChip({
   auth,
   onAuthChanged,
-  showExpiredPrompt = false,
   onOpenSettings
 }: AccountChipProps): React.JSX.Element | null {
   const [menuOpen, setMenuOpen] = useState(false)
@@ -94,8 +92,7 @@ export function AccountChip({
 
   function chooseMenuItem(key: AccountMenuKey): void {
     setMenuOpen(false)
-    if (key === 'profile') onOpenSettings?.('account')
-    else if (key === 'settings') onOpenSettings?.()
+    if (key === 'settings') onOpenSettings?.()
     else void openDestination('account')
   }
 
@@ -145,7 +142,6 @@ export function AccountChip({
     const hasCreate = auth.configured && auth.links.createAccount
     return (
       <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
-        {expired && showExpiredPrompt && <span style={{ fontSize: '11px', color: '#ba7517' }}>Sign in again</span>}
         {hasSignIn && (
           <Button variant="ghost" size="sm" onClick={() => void begin('signIn')} className="text-xs" style={{ color: expired ? '#e0bc70' : '#c0c0d8' }}>
             Sign in

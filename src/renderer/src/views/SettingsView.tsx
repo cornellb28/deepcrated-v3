@@ -1,7 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { AccountProfile } from '@renderer/components/AccountProfile'
-import { AccountChip } from '@renderer/components/AccountChip'
 import { Button } from '@renderer/components/ui/button'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@renderer/components/ui/tabs'
 import { ReconciliationModal } from '@renderer/components/ReconciliationModal'
@@ -169,7 +168,6 @@ export function SettingsView({
   const [adding, setAdding] = useState(false)
   const [rescanning, setRescanning] = useState(false)
   const analysisProgress = useLibraryStore((s) => s.analysisProgress)
-  const [signingOut, setSigningOut] = useState(false)
   const [refreshingPlan, setRefreshingPlan] = useState(false)
   const [reconcileOpen, setReconcileOpen] = useState(false)
   const [seratoImportPrompt, setSeratoImportPrompt] = useState<{
@@ -245,19 +243,6 @@ export function SettingsView({
       return
     }
     await addRoot(folderPath, false)
-  }
-
-  // No longer closes anything on the way out: signing out leaves the DJ on
-  // this page, signed out, with the sign-in form in its place. There is no
-  // auth gate to bounce them to.
-  async function handleSignOut(): Promise<void> {
-    setSigningOut(true)
-    try {
-      const result = await window.api.auth.signOut()
-      onAuthChanged(result.state)
-    } finally {
-      setSigningOut(false)
-    }
   }
 
   async function handleRefreshPlan(): Promise<void> {
@@ -376,11 +361,7 @@ export function SettingsView({
               description="Sign-in is optional. The desktop library remains fully available without an account."
               last
             >
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', alignItems: 'flex-end' }}>
-                <div style={{ marginLeft: 'auto' }}>
-                  <AccountChip auth={auth} onAuthChanged={onAuthChanged} showExpiredPrompt />
-                </div>
-
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', alignItems: 'flex-start' }}>
                 {!auth?.configured && (
                   <div style={{ fontSize: '11px', color: '#ba7517', lineHeight: 1.5 }}>
                     Supabase is not configured. Fill in the MAIN_VITE_SUPABASE_URL and anon key settings to enable account sign-in.
@@ -391,13 +372,28 @@ export function SettingsView({
                     Offline — your encrypted session is kept. Plan information is not cached.
                   </div>
                 )}
+                {/* Account controls live only in the top bar chip; these point to it.
+                    No sign-in line when the chip has no Sign in button to point at. */}
+                {auth?.configured && auth.links.signIn && auth.status === 'signedOut' && (
+                  <div style={{ fontSize: '11px', color: '#555', lineHeight: 1.5 }}>
+                    Not signed in. Use Sign in in the top bar to connect an account.
+                  </div>
+                )}
+                {auth?.configured && auth.links.signIn && auth.status === 'expired' && (
+                  <div style={{ fontSize: '11px', color: '#ba7517', lineHeight: 1.5 }}>
+                    Your session expired. Use Sign in in the top bar to sign in again.
+                  </div>
+                )}
+                {auth?.status === 'awaitingBrowser' && (
+                  <div style={{ fontSize: '11px', color: '#555', lineHeight: 1.5 }}>
+                    Finishing sign-in in your browser. You can reopen or cancel it from the top bar.
+                  </div>
+                )}
                 {auth?.status === 'signedIn' && auth.user && (
                   <AccountProfile
                     user={auth.user}
                     entitlement={auth.entitlement}
                     onRefreshed={onAuthChanged}
-                    onSignOut={() => void handleSignOut()}
-                    signingOut={signingOut}
                   />
                 )}
               </div>

@@ -18,8 +18,6 @@ interface AccountProfileProps {
   // The parent owns auth state, so refreshed session + entitlement return
   // together rather than being held as a second copy here.
   onRefreshed: (state: AuthState) => void
-  onSignOut: () => void
-  signingOut: boolean
 }
 
 const ACCENT = '#7f77dd'
@@ -40,9 +38,7 @@ function memberSince(created: string | null): string | null {
 export function AccountProfile({
   user,
   entitlement,
-  onRefreshed,
-  onSignOut,
-  signingOut
+  onRefreshed
 }: AccountProfileProps): React.JSX.Element {
   const [refreshing, setRefreshing] = useState(false)
   const [failedAvatarUrl, setFailedAvatarUrl] = useState<string | null>(null)
@@ -135,10 +131,6 @@ export function AccountProfile({
             {since ? ` · ${since}` : ''}
           </div>
         </div>
-
-        <Button onClick={onSignOut} disabled={signingOut} variant="outline" size="sm">
-          {signingOut ? 'Signing out…' : 'Sign out'}
-        </Button>
       </div>
 
       {/* ── Current plan ─────────────────────────────────────────── */}
