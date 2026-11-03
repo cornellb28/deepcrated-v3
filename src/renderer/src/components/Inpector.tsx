@@ -525,7 +525,10 @@ export function Inspector(): React.JSX.Element {
                 </div>
                 <select
                   key={`year-${track.id}`}
-                  defaultValue={track.year ?? String(new Date().getFullYear())}
+                  // No fallback to the current year: an untagged track showed
+                  // "now", and touching the select stamped it as the release
+                  // year. Same rule as the Edit labels modal.
+                  defaultValue={track.year ?? ''}
                   onChange={(e) => saveField('year', e.target.value)}
                   style={{
                     width: '100%',
@@ -533,7 +536,7 @@ export function Inspector(): React.JSX.Element {
                     border: '0.5px solid #252535',
                     borderRadius: '5px',
                     padding: '5px 8px',
-                    color: '#c0c0d8',
+                    color: track.year ? '#c0c0d8' : '#555',
                     fontSize: '12px',
                     fontFamily: 'monospace',
                     outline: 'none',
@@ -543,6 +546,7 @@ export function Inspector(): React.JSX.Element {
                   onFocus={(e) => (e.target.style.borderColor = '#7f77dd')}
                   onBlur={(e) => (e.target.style.borderColor = '#252535')}
                 >
+                  <option value="">—</option>
                   {getYearOptions().map((year) => (
                     <option key={year} value={String(year)}>{year}</option>
                   ))}

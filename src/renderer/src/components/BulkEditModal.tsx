@@ -4,6 +4,7 @@ import { Check, ChevronLeft, ChevronRight, Activity } from 'lucide-react'
 import { Dialog, DialogContent } from '@renderer/components/ui/dialog'
 import { Button } from '@renderer/components/ui/button'
 import { Badge } from '@renderer/components/ui/badge'
+import { Slider } from '@renderer/components/ui/slider'
 import { TagInput } from './TagInput'
 import { useLibraryStore } from '../store/useLibraryStore'
 import { useArtworkUrl } from '../hooks/useArtworkUrl'
@@ -24,13 +25,16 @@ interface BulkEditModalProps {
 // Fields that use TagInput (badge system). These save themselves the moment
 // a badge is added or removed — they are NOT part of this modal's dirty
 // state, and the footer says so, otherwise "Save" would look like it covers
-// them too.
+// them too. Same fields, order and colours as the inspector.
 const TAG_FIELDS = [
+  { field: 'artist', label: 'Artist', color: '#d4537e' },
   { field: 'genre', label: 'Genre', color: '#9b8ed4' },
   { field: 'comment', label: 'Comment', color: '#7f77dd' },
   { field: 'grouping', label: 'Grouping', color: '#1d9e75' },
   { field: 'remixer', label: 'Remixer', color: '#d85a30' },
-  { field: 'label', label: 'Label', color: '#378add' }
+  { field: 'label', label: 'Label', color: '#378add' },
+  { field: 'composer', label: 'Composer', color: '#ba7517' },
+  { field: 'album', label: 'Album', color: '#888780' }
 ]
 
 const YEARS = Array.from(
@@ -130,6 +134,18 @@ export function BulkEditModal({
       else next.add(field)
       return next
     })
+  }
+
+  // Energy saves this track the moment the slider is released, the same way
+  // the inspector does: database only, since no tag in the file carries it.
+  // Copying it to the rest of the selection waits for "Apply to all".
+  async function saveEnergy(energy: number): Promise<void> {
+    if (!currentTrack) return
+    updateTrack(currentTrack.id, { energy })
+    const result = await window.api.db.updateTrackMeta({ id: currentTrack.id, energy })
+    if (!result.ok) {
+      toast.error('Could not save energy', { description: result.error ?? 'Unknown error' })
+    }
   }
 
   // ── Navigation ───────────────────────────────────────────
@@ -266,6 +282,23 @@ export function BulkEditModal({
             updateTrack(trackId, { [field]: joined } as Partial<Track>)
             pendingDbWrites.push({ id: trackId, [field]: joined })
             collectFileWrite(fileWrites, track, { [fieldToMetaKey(field)]: joined })
+            savedNow.add(trackId)
+          }
+        }
+      }
+
+      // Energy, onto the rest of the selection. Like stage it is DeepCrated's
+      // own column: the slider already saved this track, no tag carries it,
+      // so this is a database write only and never touches a file.
+      if (options.bulk && isBulk && checkedFields.has('energy')) {
+        const energy = useLibraryStore
+          .getState()
+          .tracks.find((t) => t.id === currentTrack.id)?.energy
+        if (energy != null) {
+          for (const trackId of trackIds) {
+            if (trackId === currentTrack.id) continue
+            updateTrack(trackId, { energy })
+            pendingDbWrites.push({ id: trackId, energy })
             savedNow.add(trackId)
           }
         }
@@ -688,8 +721,8 @@ export function BulkEditModal({
               </div>
             )}
             <div style={{ color: '#55556a' }}>
-              Tag badges save as you add them. BPM, key and year save when you press one of
-              the save buttons.
+              Tag badges, stage and energy save as soon as you change them. Year saves a
+              moment after you pick it.
             </div>
           </div>
 
@@ -734,6 +767,28 @@ export function BulkEditModal({
               nothing re-checks it. They live as badges in the header, with
               the Analyze button that fills them. */}
 
+          {/* Energy — the inspector's slider, in the same row shape */}
+          <FieldRow
+            showCheckbox={isBulk}
+            checked={checkedFields.has('energy')}
+            onToggle={() => toggleField('energy')}
+            color={ACCENT}
+          >
+            <InlineLabel text="Energy" dirty={false} />
+            <Slider
+              key={`${currentTrack.id}-energy`}
+              defaultValue={[currentTrack.energy ?? 5]}
+              min={1}
+              max={10}
+              step={1}
+              onValueCommit={(val) => void saveEnergy(val[0])}
+              className="flex-1"
+            />
+            <span className="text-xs font-mono text-muted-foreground w-4 text-right">
+              {currentTrack.energy ?? '—'}
+            </span>
+          </FieldRow>
+
           {/* Year — a select rather than free text, but the same row shape */}
           <FieldRow
             showCheckbox={isBulk}
@@ -749,7 +804,11 @@ export function BulkEditModal({
               // across the whole selection.
               defaultValue={currentTrack.year ?? ''}
               onChange={(e) => setTextValues((prev) => ({ ...prev, year: e.target.value }))}
-              style={{ ...fieldControlStyle(dirtyFields.includes('year')), cursor: 'pointer' }}
+              style={{
+                ...fieldControlStyle(dirtyFields.includes('year')),
+                cursor: 'pointer',
+                height: '28px'
+              }}
               onFocus={(e) => (e.target.style.borderColor = ACCENT)}
               onBlur={(e) =>
                 (e.target.style.borderColor = dirtyFields.includes('year') ? ACCENT : '#252535')
