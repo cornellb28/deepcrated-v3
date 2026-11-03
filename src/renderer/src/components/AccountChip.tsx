@@ -21,11 +21,11 @@ function initials(user: AuthUser | null): string {
 }
 
 function Avatar({ user }: { user: AuthUser | null }): React.JSX.Element {
-  const [imageFailed, setImageFailed] = useState(false)
   const photo = user?.avatarUrl
-  // A failure belongs to one URL. Without this, a photo that failed once
-  // (offline, a CSP block) hides every later photo until the app restarts.
-  useEffect(() => setImageFailed(false), [photo])
+  // A failure belongs to one URL: remembering which one, rather than a flag,
+  // means a photo that failed once (offline, a CSP block) does not hide every
+  // later photo until the app restarts. Same approach as AccountProfile.
+  const [failedPhoto, setFailedPhoto] = useState<string | null>(null)
   return (
     <span
       aria-hidden="true"
@@ -45,12 +45,12 @@ function Avatar({ user }: { user: AuthUser | null }): React.JSX.Element {
         overflow: 'hidden'
       }}
     >
-      {photo && !imageFailed ? (
+      {photo && failedPhoto !== photo ? (
         <img
           src={photo}
           alt=""
           referrerPolicy="no-referrer"
-          onError={() => setImageFailed(true)}
+          onError={() => setFailedPhoto(photo)}
           style={{ width: '100%', height: '100%', objectFit: 'cover' }}
         />
       ) : initials(user)}
