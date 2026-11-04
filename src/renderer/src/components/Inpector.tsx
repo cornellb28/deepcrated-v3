@@ -12,6 +12,7 @@ import { getYearOptions } from '../utils/years'
 import { useArtworkUrl } from '../hooks/useArtworkUrl'
 import dclogo from '@renderer/assets/crateIcon.png'
 import { fullTrackMeta } from '../lib/tagMeta'
+import { useCustomFieldsStore } from '../store/useCustomFieldsStore'
 import { refreshArtists } from '../lib/refreshArtists'
 
 const CAMELOT_KEYS = [
@@ -27,6 +28,11 @@ export function Inspector(): React.JSX.Element {
     updateTrack,
     setTrackTags,
   } = useLibraryStore()
+  const customFields = useCustomFieldsStore((s) => s.fields)
+  const loadCustomFields = useCustomFieldsStore((s) => s.load)
+  useEffect(() => {
+    void loadCustomFields()
+  }, [loadCustomFields])
 
   const track = tracks.find((t) => t.id === activeTrackId) ?? null
   const isOpen = track !== null
@@ -424,6 +430,11 @@ export function Inspector(): React.JSX.Element {
               <TagInput trackId={track.id} field="label" label="Label" color="#378add" />
               <TagInput trackId={track.id} field="composer" label="Composer" color="#ba7517" />
               <TagInput trackId={track.id} field="album" label="Album" color="#888780" />
+
+              {/* The DJ's own fields (Settings → Serato → Custom fields). */}
+              {customFields.map((f) => (
+                <TagInput key={f.key} trackId={track.id} field={f.key} label={f.label} color={f.color} />
+              ))}
 
               {/* BPM */}
               <div>

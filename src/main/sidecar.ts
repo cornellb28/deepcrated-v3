@@ -318,6 +318,9 @@ export interface EditTagsMeta {
   comment?: string
   label?: string
   cratecloud_id?: string
+  // A custom field's values (cf_mood). Never written to the file as itself:
+  // main/customFields.ts folds it into its "Show in Serato as" field.
+  [customField: `cf_${string}`]: string | undefined
 }
 
 export interface EditTagsBatchItem {

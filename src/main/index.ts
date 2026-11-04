@@ -91,6 +91,9 @@ import {
   acceptPendingChange,
   ignorePendingChange,
   getTrackByFilepath,
+  getCustomFields,
+  getCustomFieldValues,
+  getTrackIdsWithTagFields,
   getAllRoots,
   ensureFolderTree,
   ensureFolderForDirectory,
@@ -112,7 +115,20 @@ import {
   type EditTagsBatchItem,
   type EditTagsResult
 } from './sidecar'
-import { editTagsResolvingIdConflicts, queueTagWrites, writeTagsForFile } from './tagWrites'
+import {
+  editTagsResolvingIdConflicts,
+  queueTagWrites,
+  setMetaTransform,
+  writeTagsForFile
+} from './tagWrites'
+import {
+  applyFieldMappings,
+  CUSTOM_FIELDS_SETTING_KEY,
+  isCustomFieldKey,
+  sanitizeCustomFields,
+  serializeCustomFields,
+  type MappingTarget
+} from './customFields'
 import {
   exportCrateToSerato,
   isSeratoRunning,
@@ -1089,6 +1105,22 @@ function buildEditTagsProgressPayload(
     failed: job.failed
   }
 }
+
+// Folds custom fields shown in Serato (Mood as Comment) into every tag write.
+// The rule is applyFieldMappings in customFields.ts; this only supplies the
+// track's current values from the database.
+setMetaTransform((filepath, meta) => {
+  const fields = getCustomFields()
+  const mentionsCustom = Object.keys(meta).some(isCustomFieldKey)
+  if (!mentionsCustom && !fields.some((f) => f.writeTo)) return meta
+  const track = getTrackByFilepath(filepath) as Track | undefined
+  return applyFieldMappings(
+    meta as Record<string, unknown>,
+    track ? fields : [],
+    (target) => (track ? (track[target as keyof Track] as string | null) : null),
+    (key) => (track ? getCustomFieldValues(track.id, key) : [])
+  ) as EditTagsMeta
+})
 
 // Spawns edit_tags.py once in --batch mode (see editTagsBatch in
 // sidecar.ts) and streams one progress tick per file. This only spawns the
@@ -2627,6 +2659,56 @@ app.whenReady().then(() => {
   // Job-based, like move/copy/export — resolves immediately with a jobId;
   // progress comes over edit-tags:progress. Does not touch the DB; see the
   // TODO on runEditTagsJob.
+  // ── Custom fields (Mood, Vibe...) and where Serato shows them ──────────
+  ipcMain.handle('custom-fields:get', () => getCustomFields())
+
+  ipcMain.handle('custom-fields:set', (_e, fields: unknown) => {
+    try {
+      const clean = sanitizeCustomFields(fields)
+      setSetting(CUSTOM_FIELDS_SETTING_KEY, serializeCustomFields(clean))
+      return { ok: true, fields: clean }
+    } catch (err) {
+      return { ok: false, error: (err as Error).message }
+    }
+  })
+
+  // Rewrites the given file fields on every track that has a value in one of
+  // the given custom fields, so a changed "Show in Serato as" reaches files
+  // that were written before the change. Old AND new targets are passed:
+  // the old one has to lose the values, the new one gain them. Runs as the
+  // same edit-tags job the bulk editor uses, so progress shows the same way.
+  ipcMain.handle(
+    'custom-fields:rewrite-files',
+    (event, keys: string[], targets: MappingTarget[]) => {
+      const fieldKeys = (Array.isArray(keys) ? keys : []).filter(isCustomFieldKey)
+      const wanted = new Set(Array.isArray(targets) ? targets : [])
+      const items: EditTagsBatchItem[] = []
+      for (const id of getTrackIdsWithTagFields(fieldKeys)) {
+        const track = getTrackById(id) as Track | undefined
+        if (!track || track.missing) continue
+        const meta: Record<string, unknown> = {}
+        for (const target of wanted) meta[target] = (track[target as keyof Track] as string | null) ?? ''
+        if (track.client_uuid) meta.cratecloud_id = track.client_uuid
+        items.push({ filepath: track.filepath, meta: meta as EditTagsMeta })
+      }
+      if (items.length === 0 || wanted.size === 0) return { jobId: null, total: 0 }
+      const job: EditTagsJob = {
+        type: 'editTags',
+        id: randomUUID(),
+        total: items.length,
+        doneCount: 0,
+        currentFile: '',
+        status: 'running',
+        failed: []
+      }
+      jobs.set(job.id, job)
+      // writeSerato off: no bpm travels with these, so there is nothing for
+      // the Serato autotags block to say.
+      runEditTagsJob(event, job, items, false)
+      return { jobId: job.id, total: items.length }
+    }
+  )
+
   ipcMain.handle(
     'sidecar:edit-tags-batch',
     (event, items: EditTagsBatchItem[], options?: { writeSerato?: boolean }) => {
@@ -2788,7 +2870,7 @@ app.whenReady().then(() => {
     'sidecar:write-tags',
     async (_e, filepath: string, meta: Record<string, unknown>) => {
       try {
-        const results = await writeTagsForFile(filepath, meta)
+        const results = await writeTagsForFile(filepath, meta as EditTagsMeta)
         return { ok: true, results }
       } catch (err) {
         return { ok: false, error: (err as Error).message }
