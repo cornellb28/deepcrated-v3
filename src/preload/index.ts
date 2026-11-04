@@ -154,6 +154,9 @@ interface EditTagsMeta {
   comment?: string
   label?: string
   cratecloud_id?: string
+  // A custom field's values (cf_mood). Never written to the file as itself:
+  // main/customFields.ts folds it into its "Show in Serato as" field.
+  [customField: `cf_${string}`]: string | undefined
 }
 
 // Custom APIs for renderer
@@ -384,6 +387,15 @@ const api = {
     get: (key: string) => ipcRenderer.invoke('settings:get', key),
     set: (key: string, value: string) => ipcRenderer.invoke('settings:set', key, value),
     delete: (key: string) => ipcRenderer.invoke('settings:delete', key)
+  },
+
+  // Custom tag fields (Mood, Vibe...) and their "Show in Serato as" target.
+  // See main/customFields.ts.
+  customFields: {
+    get: () => ipcRenderer.invoke('custom-fields:get'),
+    set: (fields: unknown) => ipcRenderer.invoke('custom-fields:set', fields),
+    rewriteFiles: (keys: string[], targets: string[]) =>
+      ipcRenderer.invoke('custom-fields:rewrite-files', keys, targets)
   },
 
   // Artist-name cleanup: the triage inbox and the library re-clean. The

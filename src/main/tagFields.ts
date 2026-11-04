@@ -159,7 +159,10 @@ export function normalizeTagValue(field: string, value: string): string {
   //
   // The existing SERATOCOLLECTION value is unaffected: it is already
   // uppercase, and nothing here rewrites values that are already stored.
-  if (field === 'custom' || field === 'vibe' || field === 'venue') {
+  // cf_ is a DJ-created custom field (Mood, Vibe...) — see customFields.ts.
+  // The prefix is checked inline rather than imported: customFields.ts
+  // imports this module.
+  if (field === 'custom' || field === 'vibe' || field === 'venue' || field.startsWith('cf_')) {
     return trimmed.toUpperCase()
   }
 

@@ -8,6 +8,7 @@ import { SeratoImportConfirmDialog } from '@renderer/components/SeratoImportConf
 import { StatsConsentSwitch } from '../components/StatsConsentSwitch'
 import { IdentityLookupSwitch } from '../components/IdentityLookupSwitch'
 import { ArtistCleanSettings } from '../components/ArtistCleanSettings'
+import { CustomFieldsSettings } from '../components/CustomFieldsSettings'
 import { useLibraryStore } from '../store/useLibraryStore'
 import { FilenameTemplateEditor } from '../components/FilenameTemplateEditor'
 import { describePlan } from '../lib/plan'
@@ -627,6 +628,13 @@ export function SettingsView({
                   </Button>
                 )}
               </div>
+            </Section>
+
+            <Section
+              title="Custom fields"
+              description="Make your own tag fields, like Mood or Vibe, and choose which field they show up in inside Serato."
+            >
+              <CustomFieldsSettings />
             </Section>
 
             <Section

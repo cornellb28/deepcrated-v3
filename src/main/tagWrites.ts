@@ -46,6 +46,37 @@ export function queueTagWrite<T>(filepath: string, task: () => Promise<T>): Prom
   return queueTagWrites([filepath], task)
 }
 
+// ── Last-moment rewrite of a write's meta ────────────────────────────────
+// Custom fields mapped onto a Serato-visible field (Mood shown as Comment)
+// have to be folded into the meta right before it goes to edit_tags.py, and
+// only main knows a track's custom tags. Injected rather than imported so
+// this module stays free of db.ts (which opens SQLite on import) and the
+// unit tests keep running without a database. index.ts installs the real
+// one at startup; see applyFieldMappings in customFields.ts for the rule.
+//
+// Applied inside the queued task, not before it, so a write that waited on
+// another one sees the tags as they are once its turn comes.
+export type MetaTransform = (filepath: string, meta: EditTagsMeta) => EditTagsMeta
+
+let metaTransform: MetaTransform = (_filepath, meta) => meta
+
+export function setMetaTransform(transform: MetaTransform): void {
+  metaTransform = transform
+}
+
+function transformItem(item: EditTagsBatchItem): EditTagsBatchItem {
+  try {
+    return { filepath: item.filepath, meta: metaTransform(item.filepath, item.meta) }
+  } catch (err) {
+    // A broken mapping must not cost the DJ the edit they asked for: write
+    // what they gave, minus custom keys edit_tags.py has no frame for.
+    console.error('[editTags] field mapping failed, writing without it:', err)
+    const meta: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(item.meta)) if (!k.startsWith('cf_')) meta[k] = v
+    return { filepath: item.filepath, meta: meta as EditTagsMeta }
+  }
+}
+
 // ── CRATECLOUD_ID conflicts ───────────────────────────────────────────────
 // A file can already carry a CRATECLOUD_ID from a different DeepCrated
 // library — a copied track, or a re-import that minted a fresh client_uuid.
@@ -68,6 +99,7 @@ export async function editTagsResolvingIdConflicts(
   onProgress: (result: EditTagsResult) => void,
   options: { writeSerato?: boolean } = {}
 ): Promise<void> {
+  items = items.map(transformItem)
   const retries: EditTagsBatchItem[] = []
   const conflicted = new Set<string>()
 

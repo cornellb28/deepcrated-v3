@@ -308,6 +308,19 @@ declare global {
         delete: (key: string) => Promise<{ ok: boolean; error?: string }>
       }
 
+      // Custom tag fields and where Serato shows them (main/customFields.ts).
+      customFields: {
+        get: () => Promise<CustomField[]>
+        set: (
+          fields: CustomField[]
+        ) => Promise<{ ok: boolean; fields?: CustomField[]; error?: string }>
+        // Starts an edit-tags job; progress arrives over onEditTagsProgress.
+        rewriteFiles: (
+          keys: string[],
+          targets: MappingTarget[]
+        ) => Promise<{ jobId: string | null; total: number }>
+      }
+
       artist: {
         suggestions: () => Promise<{ groups: ArtistSuggestionGroup[]; mode: 'off' | 'auto' | 'suggest' }>
         accept: (raw: string) => Promise<ArtistApplyResult>
@@ -802,6 +815,15 @@ declare global {
     failed: { filepath: string; error: string }[]
   }
 
+  // Mirrors main/customFields.ts.
+  type MappingTarget = 'comment' | 'grouping' | 'genre' | 'composer' | 'remixer' | 'label'
+  interface CustomField {
+    key: string // cf_-prefixed tags.field value
+    label: string
+    color: string
+    writeTo: MappingTarget | null
+  }
+
   interface EditTagsMeta {
     title?: string
     artist?: string
@@ -816,6 +838,9 @@ declare global {
     comment?: string
     label?: string
     cratecloud_id?: string
+    // A custom field's values (cf_mood). Never written to the file as itself:
+    // main/customFields.ts folds it into its "Show in Serato as" field.
+    [customField: `cf_${string}`]: string | undefined
   }
 
   // TODO: independently redefined here, in main/index.ts, and in

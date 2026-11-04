@@ -3,6 +3,8 @@ import { toast } from 'sonner'
 import { useLibraryStore } from '../store/useLibraryStore'
 import { Badge } from './ui/badge'
 import { fieldToMetaKey, withTrackIdentity } from '../lib/tagMeta'
+import { isCustomFieldKey } from '../lib/customFields'
+import { useCustomFieldsStore } from '../store/useCustomFieldsStore'
 
 interface TagInputProps {
   trackId: number
@@ -96,7 +98,17 @@ export function TagInput({ trackId, field, label, color = '#7f77dd' }: TagInputP
     }
 
     const value = result.derived ?? null
-    store.updateTrack(trackId, { [field]: value } as Partial<Track>)
+
+    // A custom field (Mood) has no track column, and only reaches the file
+    // through its "Show in Serato as" field. Unmapped, there is nothing in
+    // the file to change. Mapped, main folds its values into that field —
+    // see applyFieldMappings in main/customFields.ts.
+    if (isCustomFieldKey(field)) {
+      const custom = useCustomFieldsStore.getState().fields.find((f) => f.key === field)
+      if (!custom?.writeTo) return
+    } else {
+      store.updateTrack(trackId, { [field]: value } as Partial<Track>)
+    }
 
     const fileWrite = await window.api.writeTags(
       track.filepath,

@@ -4,6 +4,14 @@ import { join, basename, dirname, relative, isAbsolute } from 'path'
 import { copyFileSync, mkdirSync } from 'fs'
 import { applySyncSchema, migrateDelimiter, DELIMITER_MIGRATION_VERSION } from './syncSchema'
 import { isTagBackedField, joinValues as joinTagValues, normalizeTagValue } from './tagFields'
+import {
+  CUSTOM_FIELDS_SETTING_KEY,
+  MAPPING_TARGETS,
+  parseCustomFields,
+  stripMappedValues,
+  type CustomField,
+  type MappingTarget
+} from './customFields'
 import { tmpdir } from 'os'
 import { EventEmitter } from 'events'
 import { randomUUID } from 'crypto'
@@ -1165,7 +1173,14 @@ export function insertTrack(
     musicbrainz_recording_id: normalizeMbid(track.musicbrainz_recording_id),
     identity_tags_read: 'isrc' in track || 'musicbrainz_recording_id' in track ? 1 : 0
   }
-  const result = stmts.insertTrack.run(safe)
+  // A re-scan of a track already in the library re-reads its file, and the
+  // file's fields hold any custom values DeepCrated mapped into them
+  // ("GOTOS | DARK"). Take those back out first so a Mood never comes back
+  // as part of the genre column. A brand-new file has no custom tags yet,
+  // so there is nothing to take out.
+  const known = stmts.getTrackByFilepath.get(safe.filepath) as { id: number } | undefined
+  const row = known ? stripMappedFromRow(known.id, safe) : safe
+  const result = stmts.insertTrack.run(row)
 
   // better-sqlite3's lastInsertRowid is unreliable here: on the
   // ON CONFLICT DO UPDATE path it is NOT reset to 0 — it holds
@@ -1427,7 +1442,10 @@ export function getDerivedFieldValue(trackId: number, field: string): string | n
 // Returns the derived value so the caller can hand it straight to the file
 // write without reading back.
 export function setTagsForField(trackId: number, field: string, values: string[]): string | null {
-  if (!isTagBackedField(field)) throw new Error(`Not a tag-backed field: ${field}`)
+  // A defined custom field (cf_mood) takes the same path minus the column:
+  // it has no tracks.<field>, its tags are the only copy.
+  const custom = !isTagBackedField(field) && isDefinedCustomField(field)
+  if (!isTagBackedField(field) && !custom) throw new Error(`Not a tag-backed field: ${field}`)
 
   let derived: string | null = null
 
@@ -1449,13 +1467,83 @@ export function setTagsForField(trackId: number, field: string, values: string[]
     }
 
     derived = deriveFieldValue(trackId, field)
-    db.prepare(
-      `UPDATE tracks SET ${field} = @value, updated_at = datetime('now') WHERE id = @id`
-    ).run({ id: trackId, value: derived })
+    if (custom) {
+      // Still a change to the track — sync and "recently edited" read this.
+      db.prepare(`UPDATE tracks SET updated_at = datetime('now') WHERE id = ?`).run(trackId)
+    } else {
+      db.prepare(
+        `UPDATE tracks SET ${field} = @value, updated_at = datetime('now') WHERE id = @id`
+      ).run({ id: trackId, value: derived })
+    }
   })
   run()
 
   return derived
+}
+
+// ── Custom fields (Mood, Vibe...) ─────────────────────────────────────────
+// Definitions and their "Show in Serato as" targets are one JSON setting;
+// the rules are in customFields.ts. Read fresh on every call: it is one
+// indexed row, and a cached copy would go stale the moment Settings saves.
+export function getCustomFields(): CustomField[] {
+  return parseCustomFields(getSetting(CUSTOM_FIELDS_SETTING_KEY))
+}
+
+function isDefinedCustomField(field: string): boolean {
+  return getCustomFields().some((f) => f.key === field)
+}
+
+// A track's values for one custom field, in the order they were applied.
+export function getCustomFieldValues(trackId: number, key: string): string[] {
+  const rows = db
+    .prepare(
+      `SELECT g.value FROM track_tags tt
+         JOIN tags g ON g.id = tt.tag_id
+        WHERE tt.track_id = ? AND g.field = ?
+        ORDER BY tt.rowid`
+    )
+    .all(trackId, key) as { value: string }[]
+  return rows.map((r) => r.value)
+}
+
+// Every value this track carries for custom fields shown in `target`. These
+// are the values DeepCrated itself added to that file field, so they are
+// what to take back out when the field is read back from disk or Serato.
+export function getMappedValuesForTarget(trackId: number, target: MappingTarget): string[] {
+  return getCustomFields()
+    .filter((f) => f.writeTo === target)
+    .flatMap((f) => getCustomFieldValues(trackId, f.key))
+}
+
+// Every live track carrying at least one tag of any of these fields. What
+// "update files now" rewrites after a mapping changes.
+export function getTrackIdsWithTagFields(fields: string[]): number[] {
+  if (fields.length === 0) return []
+  const placeholders = fields.map(() => '?').join(',')
+  return (
+    db
+      .prepare(
+        `SELECT DISTINCT tt.track_id AS id FROM track_tags tt
+           JOIN tags g ON g.id = tt.tag_id
+          WHERE g.field IN (${placeholders})`
+      )
+      .all(...fields) as { id: number }[]
+  ).map((r) => r.id)
+}
+
+// Strips mapped values out of every target column a caller is about to
+// store for an existing track. Columns the caller did not supply are left
+// alone. No-op (and no query beyond the setting) when nothing is mapped.
+function stripMappedFromRow<T extends Record<string, unknown>>(trackId: number, row: T): T {
+  const fields = getCustomFields()
+  if (!fields.some((f) => f.writeTo)) return row
+  const out: Record<string, unknown> = { ...row }
+  for (const target of MAPPING_TARGETS) {
+    if (typeof out[target] !== 'string') continue
+    const mapped = getMappedValuesForTarget(trackId, target)
+    out[target] = stripMappedValues(out[target] as string, target, mapped)
+  }
+  return out as T
 }
 
 // Renames a tag and re-derives every track that carries it, in one
@@ -2663,6 +2751,10 @@ export function fillTrackFieldsIfEmpty(
 ): SeratoFillableField[] {
   const existing = stmts.getTrackById.get(trackId) as Record<string, unknown> | undefined
   if (!existing) return []
+
+  // Serato's database caches the file's fields, mapped custom values and
+  // all — the same reason insertTrack strips them on a re-scan.
+  candidates = stripMappedFromRow(trackId, candidates)
 
   const toSet: Record<string, unknown> = {}
   const filled: SeratoFillableField[] = []
