@@ -1,7 +1,7 @@
 # Sync contract (desktop ⇄ mobile ⇄ Supabase)
 
-Spec for the Supabase tables. Nothing in this document is implemented as sync
-code yet; desktop only carries the identity and change-tracking the sync layer
+Spec for the synced tables and for how mobile edits reach desktop. Nothing in
+this document is implemented as sync code yet; desktop only carries the identity and change-tracking the sync layer
 will read (`src/main/syncSchema.ts`). The mobile mirror is
 `deepcrated-mobile/src/db/migrations/001_initial.ts`.
 
@@ -198,10 +198,119 @@ columns, with the previous values kept in `_delimiter_backup_v2`.
 
 ## Conflict resolution
 
-Per-row last-write-wins on `updated_at`. Ties: the larger `client_uuid` string
-wins, so every client picks the same winner. A row with `deleted_at` set
-wins over an older live version, and loses to a live version with a newer
-`updated_at`.
+Two directions, two rules (decided 2026-11-05):
+
+- **Desktop → mobile (snapshot):** desktop is the source of truth. Mobile
+  applies desktop's rows as they are, **without** comparing `updated_at`
+  (phone stamps come from the phone's clock, which can run ahead and would
+  block desktop's values). A `deleted_at` row from desktop deletes locally.
+  Mobile never overwrites a track or crate (or its links) that still has an
+  unsent patch entry; it keeps its local value until desktop has answered the
+  patch, and pulls that row again next time. Wire format, complete link sets,
+  tag merging and paging: `docs/local-sync-protocol.md`, "Pull".
+- **Mobile → desktop (patch):** mobile never sends whole rows. It sends
+  field-level patch entries, and desktop runs a three-way check per field.
+  See *Mobile edits: field-level patches* below. Whole-row last-write-wins is
+  **not** used in this direction, because it would undo desktop edits to
+  fields the phone never touched.
+
+## Mobile edits: field-level patches
+
+The model is snapshot → edit → diff → patch, like React's virtual DOM. The
+phone holds a snapshot of the synced tables, the DJ edits it, and the phone
+sends desktop only what changed, each change carrying the value it was based
+on.
+
+### Transport
+
+Local wifi first: desktop serves a small endpoint on the local network and the
+phone pairs once by scanning a QR code on desktop. Free, no account plan
+required. The cloud (Supabase) carries the **same** patch format later, for
+syncing away from the same network; that part is a paid plan and waits on
+`CLOUD_LIVE`. **TODO(sync): pairing, discovery and endpoint security are not
+specified yet.**
+
+### Patch
+
+```jsonc
+{
+  "patchId": "uuid v4, minted by the phone",   // desktop applies each id at most once
+  "deviceId": "uuid v4 of the phone install",
+  "baseSnapshotAt": 1793836800000,             // epoch ms of the snapshot the edits were made on
+  "entries": [ /* see below, in edit order */ ]
+}
+```
+
+Entry kinds:
+
+| `op` | Fields | Meaning |
+|---|---|---|
+| `set` | `track`, `field`, `from`, `to`, `editedAt` | Scalar field changed from the snapshot value `from` to `to` |
+| `tag.add` / `tag.remove` | `track`, `field`, `value`, `editedAt` | Add or remove one tag value (by field + value, not tag uuid, so a tag the phone created resolves on desktop) |
+| `crate.create` | `crate` (new uuid), `name`, `color`, `parent`, `editedAt` | New crate |
+| `crate.rename` | `crate`, `from`, `to`, `editedAt` | Rename |
+| `crate.delete` | `crate`, `editedAt` | Delete the crate only, never its tracks |
+| `crate.add` / `crate.remove` | `crate`, `track`, `position?`, `editedAt` | Crate membership |
+
+`track` and `crate` are `client_uuid`s. `editedAt` is epoch ms on the phone's
+clock and is for display and ordering only, never for deciding a conflict.
+
+### Fields mobile may edit (v1)
+
+| Field | Kind |
+|---|---|
+| `vibe`, `venue`, `custom` tags (and custom tag fields once shipped) | `tag.add` / `tag.remove` |
+| `genre`, `grouping`, `label`, `comment` | `tag.add` / `tag.remove` (tags are the source of truth; the display string is derived) |
+| `energy` | `set` |
+| crates and crate membership | `crate.*` |
+
+Read-only on mobile in v1: `title`, `artist`, `remixer`, `album`, `composer`
+(artist order is not on the wire, and title/artist edits can rename files on
+desktop), `bpm` and key columns (analysis output). Mobile cannot delete a
+track. Desktop rejects any entry outside this list.
+
+### Three-way check on desktop
+
+For a `set` or `crate.rename`, compare the snapshot value (`from`), the
+phone's value (`to`) and desktop's current value (`now`):
+
+| Case | Result |
+|---|---|
+| `now == from` | Apply `to` (only the phone changed it) |
+| `now == to` | Already applied, no-op |
+| otherwise | **Conflict**: both changed it. Hold for review |
+
+`tag.add` / `tag.remove` and `crate.add` / `crate.remove` are set operations
+and never conflict: adding a tag the track already has, or removing one it
+doesn't, is a no-op. Entries on a track or crate that no longer exists on
+desktop are skipped and reported.
+
+### Applying
+
+1. Reject a `patchId` already applied (kept in a local applied-patches log).
+2. Run the check per entry. Apply clean entries **through the repository
+   layer**, never raw SQL, so derived display strings, `sync_updated_at`
+   stamps and tag write-back behave as if the DJ made the edit on desktop.
+3. Write changed tags back to the audio files on the existing write-back path.
+4. Hold conflicts in a "Changes from your phone" review list; the DJ picks
+   phone or desktop per field.
+5. Reply to the phone with each entry's outcome: `applied`, `noop`,
+   `conflict`, `skipped` or `rejected`. The phone clears its queue only for
+   entries it got an outcome for.
+6. Send the phone a fresh snapshot, or the rows changed since its last one.
+
+Desktop keeps the last few applied patches with the prior values so a bad
+batch can be undone. **TODO(sync): retention count for undo, and the review
+list's storage, are not decided.**
+
+### Mobile queue
+
+Mobile holds patch entries (op, target uuids, field, snapshot value, new
+value, `editedAt`) in `patch_entries` (mobile migration 002); consecutive
+`set`s on the same field collapse to one entry keeping the **first** `from`.
+Batches are frozen before sending (migration 003), so a retry resends the
+same `patchId` with the same entries. Transport and endpoints:
+`docs/local-sync-protocol.md`.
 
 ## Desktop schema reference
 
