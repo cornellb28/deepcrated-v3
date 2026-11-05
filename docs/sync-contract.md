@@ -201,11 +201,13 @@ columns, with the previous values kept in `_delimiter_backup_v2`.
 Two directions, two rules (decided 2026-11-05):
 
 - **Desktop → mobile (snapshot):** desktop is the source of truth. Mobile
-  takes desktop's rows as they are, per-row last-write-wins on `updated_at`
-  (ties: the larger `client_uuid`). A row with `deleted_at` set wins over an
-  older live version, and loses to a live version with a newer `updated_at`.
-  Mobile never overwrites a row that still has an unsent patch entry; it
-  keeps its local value until the patch is applied or rejected.
+  applies desktop's rows as they are, **without** comparing `updated_at`
+  (phone stamps come from the phone's clock, which can run ahead and would
+  block desktop's values). A `deleted_at` row from desktop deletes locally.
+  Mobile never overwrites a track or crate (or its links) that still has an
+  unsent patch entry; it keeps its local value until desktop has answered the
+  patch, and pulls that row again next time. Wire format, complete link sets,
+  tag merging and paging: `docs/local-sync-protocol.md`, "Pull".
 - **Mobile → desktop (patch):** mobile never sends whole rows. It sends
   field-level patch entries, and desktop runs a three-way check per field.
   See *Mobile edits: field-level patches* below. Whole-row last-write-wins is
@@ -303,11 +305,12 @@ list's storage, are not decided.**
 
 ### Mobile queue
 
-Mobile's `pending_changes` table records only which row changed, which is not
-enough to build a patch. It needs to hold patch entries instead (op, target
-uuids, field, snapshot value, new value, `editedAt`), and consecutive `set`s
-on the same field collapse to one entry keeping the **first** `from`.
-**TODO(sync): mobile migration for the patch queue.**
+Mobile holds patch entries (op, target uuids, field, snapshot value, new
+value, `editedAt`) in `patch_entries` (mobile migration 002); consecutive
+`set`s on the same field collapse to one entry keeping the **first** `from`.
+Batches are frozen before sending (migration 003), so a retry resends the
+same `patchId` with the same entries. Transport and endpoints:
+`docs/local-sync-protocol.md`.
 
 ## Desktop schema reference
 
