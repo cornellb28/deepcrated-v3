@@ -1,8 +1,16 @@
 import Database, { RunResult, Statement } from 'better-sqlite3'
 import { app } from 'electron'
 import { join, basename, dirname, relative, isAbsolute } from 'path'
-import { copyFileSync, mkdirSync } from 'fs'
-import { applySyncSchema, migrateDelimiter, DELIMITER_MIGRATION_VERSION } from './syncSchema'
+import { mkdirSync } from 'fs'
+import { applySyncSchema, migrateDelimiter } from './syncSchema'
+import {
+  applyLocalSyncSchema,
+  backupBeforeMigration,
+  getOrCreateDesktopId,
+  insertCrateWithUuid as insertCrateWithUuidIn,
+  prunePatchLog,
+  LOCAL_SYNC_SCHEMA_VERSION
+} from './localSync/schema'
 import { isTagBackedField, joinValues as joinTagValues, normalizeTagValue } from './tagFields'
 import { tmpdir } from 'os'
 import { EventEmitter } from 'events'
@@ -724,21 +732,29 @@ db.exec(`
   );
 `)
 
-// ─── Sync identity + delimiter (user_version 1 and 2) ────────────────────
+// ─── Sync identity, delimiter, local sync (user_version 1, 2 and 3) ─────
 // Must run after every tracks column above exists: the stamping triggers name
-// them. Snapshot first — a real library is about to have columns, triggers and
-// display strings changed in place.
-if (Number(db.pragma('user_version', { simple: true })) < DELIMITER_MIGRATION_VERSION) {
+// them. Snapshot first whenever any of these is still pending — a real
+// library is about to have tables, columns, triggers or display strings
+// changed in place. Keeps the last few snapshots (localSync/schema.ts).
+if (Number(db.pragma('user_version', { simple: true })) < LOCAL_SYNC_SCHEMA_VERSION) {
   try {
-    db.pragma('wal_checkpoint(TRUNCATE)')
-    copyFileSync(dbPath, `${dbPath}.backup-pre-sync-${new Date().toISOString().replace(/[:.]/g, '-')}`)
+    backupBeforeMigration(db, dbPath)
   } catch (err) {
     // A failed snapshot must not stop the app opening; say so loudly.
-    console.error('[db] pre-sync-migration backup failed:', err)
+    console.error('[db] pre-migration backup failed:', err)
   }
 }
 applySyncSchema(db)
 migrateDelimiter(db)
+applyLocalSyncSchema(db)
+try {
+  const pruned = prunePatchLog(db)
+  const total = pruned.acked + pruned.expired + pruned.overCeiling
+  if (total > 0) console.log(`[db] pruned ${total} local-sync patch log rows`)
+} catch (err) {
+  console.error('[db] local-sync patch log prune failed:', err)
+}
 
 // ─── Prepared statements/Queries ─────────────────────────────────────────────
 // Prepared statements are compiled once and run fast
@@ -2163,6 +2179,18 @@ export function insertCrate(name: string, parentCrateId: number | null, color = 
   return Number(result.lastInsertRowid)
 }
 
+// For local sync's crate.create: keeps the phone-minted uuid, and returns
+// the existing crate instead of inserting when that uuid is already here.
+// insertCrate above is unchanged for every other caller.
+export function insertCrateWithUuid(
+  clientUuid: string,
+  name: string,
+  parentCrateId: number | null,
+  color = '#7f77dd'
+): { id: number; created: boolean } {
+  return insertCrateWithUuidIn(db, { clientUuid, name, parentCrateId, color })
+}
+
 export function getAllCrates(): Crate[] {
   return stmts.getAllCrates.all() as Crate[]
 }
@@ -2773,6 +2801,14 @@ export function getSetting(key: string): string | null {
 
 export function setSetting(key: string, value: string): RunResult {
   return stmts.setSetting.run({ key, value })
+}
+
+// The install's local-sync identity, minted on first call and never
+// regenerated (phones pin it). Cached: it cannot change while running.
+let desktopId: string | null = null
+export function getDesktopId(): string {
+  if (desktopId === null) desktopId = getOrCreateDesktopId(db)
+  return desktopId
 }
 
 // Removes the row outright, rather than blanking it. getSetting already
