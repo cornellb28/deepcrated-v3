@@ -11,6 +11,7 @@ import {
   prunePatchLog,
   LOCAL_SYNC_SCHEMA_VERSION
 } from './localSync/schema'
+import { createPhoneStore, type PhoneStore } from './localSync/phones'
 import { isTagBackedField, joinValues as joinTagValues, normalizeTagValue } from './tagFields'
 import { tmpdir } from 'os'
 import { EventEmitter } from 'events'
@@ -2790,6 +2791,14 @@ export function getArtistStore(): ArtistStore {
 // never reaches it.
 export function getIdentityStore(): IdentityStore {
   return createSqliteIdentityStore(db)
+}
+
+// ─── Local sync paired phones ─────────────────────────────
+// For src/main/localSync/ only; the renderer never reaches it.
+let phoneStore: PhoneStore | null = null
+export function getLocalSyncPhoneStore(): PhoneStore {
+  if (phoneStore === null) phoneStore = createPhoneStore(db)
+  return phoneStore
 }
 
 // ─── Settings functions ───────────────────────────────────

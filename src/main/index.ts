@@ -147,6 +147,7 @@ import {
 } from './identity/runtime'
 import { artistCleaner, processNewArtists, setArtistCleanSender } from './artist/runtime'
 import { startStatsUploader, flushStatsOnQuit, shouldFlushOnQuit } from './stats/runtime'
+import { startLocalSyncIfEnabled, stopLocalSync, isLocalSyncEnabled } from './localSync/runtime'
 
 // Raise file handle limit for large libraries
 try {
@@ -1884,6 +1885,9 @@ protocol.registerSchemesAsPrivileged([
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(() => {
   startStatsUploader()
+  // Off unless the DJ turned phone sync on; errors land in its status,
+  // never as a crash.
+  void startLocalSyncIfEnabled()
   setArtistCleanSender((channel, payload) => mainWindow?.webContents.send(channel, payload))
   startIdentityBackfill({
     send: (status) => mainWindow?.webContents.send('identity:progress', status),
@@ -3836,6 +3840,20 @@ app.on('before-quit', (event) => {
   statsFlushed = true
   event.preventDefault()
   void flushStatsOnQuit().finally(() => app.quit())
+})
+
+// Phone sync: stop advertising and close the server (and any open phone
+// connections) before quitting. Held like the stats flush above, capped so a
+// stuck socket can never block the quit.
+let localSyncStopped = false
+app.on('before-quit', (event) => {
+  if (localSyncStopped || !isLocalSyncEnabled()) return
+  localSyncStopped = true
+  event.preventDefault()
+  const cap = new Promise<void>((resolve) => setTimeout(resolve, 2000))
+  void Promise.race([stopLocalSync(), cap])
+    .catch((err) => console.error('[local-sync] stop on quit failed:', err))
+    .finally(() => app.quit())
 })
 
 // Quit when all windows are closed, except on macOS. There, it's common

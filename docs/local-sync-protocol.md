@@ -1,8 +1,48 @@
 # Local wifi sync protocol (v1)
 
-Status: phone side built (`src/sync`, `src/db/patchOutbox.ts`); desktop side
-not built yet. Build the desktop to match this document. If either side needs
-a change, change this document first.
+Status: phone side built (`src/sync`, `src/db/patchOutbox.ts`) against
+revision 1. Desktop server, pairing and auth built against **revision 2**
+(`src/main/localSync/`, branch `feature/local-sync`); patch and snapshot not
+built yet. If either side needs a change, change this document first.
+
+## Revision 2 (2026-11-11): HTTPS, pinned certificate, /v1/status
+
+**What changed**
+
+1. **HTTPS instead of plain HTTP.** Desktop serves TLS with a self-signed
+   certificate generated once per install and kept for about ten years.
+2. **`certFingerprint` in the QR payload**: SHA-256 of the certificate's DER
+   bytes, 64 lower-case hex characters, no colons.
+3. **`GET /v1/status`** (authenticated): `{ v, desktopId, serverTime }`.
+4. **Version check by path prefix.** Any path not under `/v1/` gets
+   **426** `{ "error": "unsupported_version", "supported": [1], "message": "..." }`.
+5. **mDNS advertising** (`_deepcrated._tcp`, TXT `v`, `id`). Groundwork only;
+   see Discovery.
+
+The wire version stays `v: 1`: paths, headers, bodies and the rest of the QR
+payload are unchanged.
+
+**Why.** Plain HTTP sent the device secret, and every edit, readable to
+anyone on the same wifi. Pinning the fingerprint from the QR (which the DJ
+scans in person) authenticates the desktop without a certificate authority.
+
+**What the phone must do**
+
+- Connect with `https://<address>` for every request, including `/v1/hello`.
+- **Pin the certificate:** accept the connection only if the SHA-256 of the
+  server's leaf certificate (DER) equals the `certFingerprint` from the QR. Do
+  not use system CA validation or hostname checks (the certificate is
+  self-signed and the address is an IP). Never send the device secret, the
+  pairing code or anything else over a connection that failed the pin.
+- Store `certFingerprint` with the pairing (secure store, next to
+  `desktopId`). A fingerprint mismatch later means the desktop's identity
+  changed (reinstall or a deliberate reset): treat it like 401, clear the
+  pairing and show "Pair again".
+- Manual entry (no QR) has no fingerprint. **TODO(sync-tls):** the desktop
+  should also show the fingerprint (or a short form of it) for the DJ to
+  type; until then manual pairing is not supported over HTTPS.
+- On 426, stop syncing and tell the DJ to update the app.
+
 
 Source of truth for data rules: deepcrated-v3 `docs/sync-contract.md`,
 "Conflict resolution" and "Mobile edits: field-level patches" (branch
@@ -20,13 +60,16 @@ phone and desktop talk on the home network.
 
 ## Transport
 
-- JSON over plain HTTP on the local network. Desktop listens on one TCP port
-  on its LAN addresses (not on the public internet).
+- JSON over **HTTPS** on the local network (revision 2). Desktop listens on
+  one TCP port on its private LAN IPv4 addresses only (10/8, 172.16/12,
+  192.168/16), never on a public interface. Preferred port 47823; if it is
+  taken desktop uses the next free one and the QR carries the real port.
 - All bodies are `application/json`, UTF-8. Timestamps are epoch ms. Ids are
   lower-case v4 uuids.
-- Plain HTTP is acceptable for v1 because every request after pairing carries
-  the device secret. **TODO(sync-tls):** TLS with a self-signed certificate
-  whose SHA-256 fingerprint is carried in the QR code, pinned by the phone.
+- TLS: a self-signed certificate (EC P-256, about ten years), generated once
+  per desktop install and never regenerated automatically. Its SHA-256 (DER)
+  fingerprint is in the QR code and the phone pins it. A new certificate
+  means every phone pairs again.
 - Error bodies: `{ "error": "<code>" }` with the status codes below.
 
 | Status | Meaning |
@@ -34,7 +77,10 @@ phone and desktop talk on the home network.
 | 400 | Malformed request (`bad_request`) |
 | 401 | Missing or unknown device secret (`unpaired`). The phone clears its pairing and shows "Pair again". |
 | 403 | `/v1/pair` only: pairing code wrong, expired or already used (`pairing_code_invalid`) |
+| 404 | Unknown path under `/v1/` (`not_found`) |
+| 405 | Known path, wrong method (`method_not_allowed`) |
 | 409 | `/v1/patch` only: a different body for a patchId already received (`patch_id_reused`) |
+| 426 | Path not under `/v1/` (`unsupported_version`, with `supported` and `message`). The phone tells the DJ to update. |
 | 5xx | Desktop error. The phone keeps everything queued and retries next sync. |
 
 ## 1. Pairing
@@ -42,15 +88,17 @@ phone and desktop talk on the home network.
 Desktop shows a QR code (and the same values as text, for manual entry):
 
 ```json
-{ "v": 1, "desktopId": "uuid", "desktopName": "Studio iMac", "addresses": ["192.168.1.20:47823"], "pairingCode": "K7Q-4MZ" }
+{ "v": 1, "desktopId": "uuid", "desktopName": "Studio iMac", "addresses": ["192.168.1.20:47823"], "pairingCode": "K7Q-4MZ", "certFingerprint": "64 lower-case hex chars" }
 ```
 
 - `desktopId`: v4 uuid minted once per desktop install, never changes.
 - `addresses`: every LAN `host:port` desktop listens on; IPv6 in brackets
   (`[fe80::1]:47823`).
-- `pairingCode`: short, random, **single-use**, expires after a few minutes
-  (recommended 5). Desktop accepts at most a handful of wrong attempts per code,
-  then invalidates it.
+- `pairingCode`: six characters shown as `K7Q-4MZ` (no 0/O/1/I/L; case, spaces
+  and the dash are ignored when typed), **single-use**, expires after 5
+  minutes, and is invalidated after 5 wrong attempts. One code is live at a
+  time.
+- `certFingerprint` (revision 2): see TLS above.
 
 Phone, after scanning (or after the DJ types an address and the code):
 
@@ -65,12 +113,14 @@ Phone, after scanning (or after the DJ types an address and the code):
 { "deviceSecret": "opaque string, at least 32 random bytes, base64url" }
 ```
 
-Desktop stores `(deviceId, deviceName, hash(deviceSecret), pairedAt)` and lists
-paired phones so the DJ can unpair one. Pairing again with the same deviceId
-replaces the old secret.
+Desktop stores `(deviceId, deviceName, sha256(deviceSecret), pairedAt)` and
+lists paired phones so the DJ can unpair one. Pairing again with the same
+deviceId replaces the old secret and un-revokes it. `deviceName` is trimmed and
+cut to 100 characters. A malformed body is 400 and does not count as a wrong
+attempt.
 
 The phone stores `desktopId`, `desktopName`, the addresses, the last address
-that worked and `deviceSecret` in the platform secure store. `deviceId` is a
+that worked, `certFingerprint` and `deviceSecret` in the platform secure store. `deviceId` is a
 v4 uuid minted once per install and stored the same way.
 
 ## 2. Authentication
@@ -83,7 +133,13 @@ X-DeepCrated-Device: <deviceId>
 ```
 
 Desktop answers 401 if the pair is unknown (for example the DJ unpaired the
-phone on desktop). The phone then forgets the pairing; its queued edits stay.
+phone on desktop), if either header is missing, if the secret is wrong, or if
+the secret belongs to a different deviceId. The phone then forgets the
+pairing; its queued edits stay.
+
+`GET /v1/status` (revision 2, authenticated) →
+`{ "v": 1, "desktopId": "uuid", "serverTime": 1793836805000 }`. Lets the phone
+check its pairing still works without pulling.
 
 ## 3. Finding the desktop again
 
@@ -93,9 +149,12 @@ answers with the paired `desktopId`. It never sends the secret to an address
 whose hello doesn't match. If none answer: "Can't reach your desktop. Make
 sure DeepCrated is open and you're on the same wifi."
 
-**TODO(sync-discovery):** mDNS/zeroconf to find a desktop whose address
-changed (needs a native module on the phone). Until then, a changed address
-means pairing again.
+Desktop advertises mDNS service `_deepcrated._tcp` on the server's port with
+TXT `v` (protocol version, `"1"`) and `id` (desktopId), instance name = the
+desktop name. **TODO(sync-discovery):** the phone browsing for it (needs a
+native module on the phone). Until then, a changed address means pairing
+again. When it is built, the phone must still check hello's `desktopId` and
+the pinned fingerprint before sending anything.
 
 ## 4. Hello
 
@@ -224,10 +283,16 @@ the phone's next request get 401.
 
 ## Desktop checklist
 
-- [ ] HTTP server on a fixed port, LAN only; Windows firewall prompt handled
-- [ ] Pairing screen: QR + text, single-use expiring code, attempt limit
-- [ ] Paired devices list with unpair
-- [ ] `/v1/hello`, `/v1/pair`, `/v1/patch`, `/v1/snapshot`
+- [x] HTTPS server, LAN only, preferred port with fallback; listen failures
+      (firewall, permissions, no network) reported, not retried
+- [x] Self-signed certificate generated once, fingerprint in the QR (rev. 2)
+- [x] Single-use expiring pairing code with attempt limit; QR data URL
+- [ ] Pairing screen (Settings UI)
+- [x] Paired phones stored with hashed secrets; revoke
+- [ ] Paired devices list with unpair (Settings UI)
+- [x] `/v1/hello`, `/v1/pair`, `/v1/status`
+- [ ] `/v1/patch`, `/v1/snapshot`
+- [x] mDNS advertising (groundwork)
 - [ ] Applied-patch log keyed by patchId (at most once, repeat returns stored outcomes)
 - [ ] Patch applier through the repository layer, write-back to files (sync contract)
 - [ ] Review panel for conflicts
