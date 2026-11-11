@@ -1,5 +1,6 @@
 import React from 'react'
 import { useArtworkUrl } from '../hooks/useArtworkUrl'
+import { DefaultArtwork } from './DefaultArtwork'
 
 interface MosaicArtworkProps {
   artworkHashes: (string | null)[]
@@ -34,7 +35,7 @@ function MosaicTile({ url }: { url: string | null }): React.JSX.Element {
       justifyContent: 'center',
       background: '#1e1e2a',
     }}>
-      <span style={{ fontSize: '20px', color: '#333' }}>♪</span>
+      <DefaultArtwork />
     </div>
   )
 }

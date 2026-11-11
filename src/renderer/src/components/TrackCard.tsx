@@ -20,6 +20,7 @@ import {
 import type { SelectModifiers } from '../lib/selection'
 import { StagePill } from './StagePill'
 import { TagBadge } from './TagBadge'
+import { DefaultArtwork } from './DefaultArtwork'
 
 // Two fits beside the board pill and the crate count at three columns
 // without any of them being squeezed to an ellipsis. The rest become "+N",
@@ -171,7 +172,7 @@ export function TrackCard({
             style={{ width: '100%', height: '100%', objectFit: 'cover' }}
           />
         ) : (
-          <span style={{ fontSize: '26px', color: '#2a2a3a' }}>♪</span>
+          <DefaultArtwork />
         )}
 
         <div

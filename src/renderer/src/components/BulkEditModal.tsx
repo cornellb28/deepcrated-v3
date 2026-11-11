@@ -13,6 +13,7 @@ import { StagePill } from './StagePill'
 import { reanalyzeTrack } from '../lib/reanalyze'
 import { flushStageWrites } from '../lib/stageCommit'
 import { STAGE_NOUN } from '../lib/stages'
+import { DefaultArtwork } from './DefaultArtwork'
 
 // ─── Types ───────────────────────────────────────────────
 
@@ -583,7 +584,7 @@ export function BulkEditModal({
                 style={{ width: '100%', height: '100%', objectFit: 'cover' }}
               />
             ) : (
-              <span style={{ fontSize: '24px', color: '#333' }}>♪</span>
+              <DefaultArtwork />
             )}
           </div>
 

@@ -4,6 +4,7 @@ import { ImportDropzone } from './ImportDropzone'
 import { Input } from '@renderer/components/ui/input'
 import type { View } from './Sidebar'
 import { NotificationBell } from './NotificationBell'
+import dclogo from '@renderer/assets/crateIcon.png'
 
 interface ToolbarProps {
   onImportFolder: (path: string) => void
@@ -42,6 +43,12 @@ export function Toolbar({ onImportFolder, activeView, onImportFiles }: ToolbarPr
         gap: '10px',
         flexShrink: 0
       }}>
+      <img
+        src={dclogo}
+        alt="DeepCrated"
+        style={{ height: '26px', width: 'auto', flexShrink: 0 }}
+      />
+
       <ImportDropzone
         onImportFolder={onImportFolder}
         onImportFiles={onImportFiles}

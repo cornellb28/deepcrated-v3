@@ -3,6 +3,7 @@ import { Dialog, DialogContent } from '@renderer/components/ui/dialog'
 import { Button } from '@renderer/components/ui/button'
 import { Badge } from '@renderer/components/ui/badge'
 import { useArtworkUrl } from '../hooks/useArtworkUrl'
+import { DefaultArtwork } from './DefaultArtwork'
 
 interface ReconciliationModalProps {
   open: boolean
@@ -352,7 +353,7 @@ function ChangeRow({
             style={{ width: '100%', height: '100%', objectFit: 'cover' }}
           />
         ) : (
-          <span style={{ fontSize: '14px', color: '#333' }}>♪</span>
+          <DefaultArtwork />
         )}
       </div>
 

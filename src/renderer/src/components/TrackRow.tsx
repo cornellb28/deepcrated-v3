@@ -8,6 +8,7 @@ import { TrackRowMenu } from './TrackRowMenu'
 import { StagePill } from './StagePill'
 import { TagBadge } from './TagBadge'
 import type { SelectModifiers } from '../lib/selection'
+import { DefaultArtwork } from './DefaultArtwork'
 
 interface TrackRowProps {
   track: Track
@@ -145,7 +146,7 @@ export function TrackRow({
             style={{ width: '100%', height: '100%', objectFit: 'cover' }}
           />
         ) : (
-          <span style={{ fontSize: '18px', color: '#333' }}>♪</span>
+          <DefaultArtwork />
         )}
 
         {!isMissing && track.filepath && (

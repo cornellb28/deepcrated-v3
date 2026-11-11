@@ -10,9 +10,9 @@ import { MoveFileButton } from './MoveFileButton'
 import { Input } from '@renderer/components/ui/input'
 import { getYearOptions } from '../utils/years'
 import { useArtworkUrl } from '../hooks/useArtworkUrl'
-import dclogo from '@renderer/assets/crateIcon.png'
 import { fullTrackMeta } from '../lib/tagMeta'
 import { refreshArtists } from '../lib/refreshArtists'
+import { DefaultArtwork } from './DefaultArtwork'
 
 const CAMELOT_KEYS = [
   '1A', '2A', '3A', '4A', '5A', '6A', '7A', '8A', '9A', '10A', '11A', '12A',
@@ -320,11 +320,7 @@ export function Inspector(): React.JSX.Element {
                   style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                 />
               ) : (
-                <img
-                  src={dclogo}
-                  alt="DeepCrated"
-                  style={{ width: '100%', height: '100%', objectFit: 'contain' }}
-                />
+                <DefaultArtwork />
               )}
 
               {/* Analyzing overlay */}
