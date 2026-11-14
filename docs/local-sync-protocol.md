@@ -3,7 +3,51 @@
 Status: phone side built (`src/sync`, `src/db/patchOutbox.ts`) against
 revision 1. Desktop server, pairing and auth built against **revision 2**
 (`src/main/localSync/`, branch `feature/local-sync`); patch and snapshot not
-built yet. If either side needs a change, change this document first.
+built yet. Revision 3 (typed pairing) changes only client behavior and is not
+built on either side yet. If either side needs a change, change this document
+first.
+
+## Revision 3 (2026-11-14): typed pairing with fingerprint confirmation
+
+**The wire protocol is unchanged.** Paths (`/v1/...`), headers, bodies, status
+codes and the QR payload are exactly as in revision 2, and `v` stays `1`.
+Revision 3 changes only what the phone must do when the DJ pairs by typing
+instead of scanning.
+
+**What changed**
+
+1. **Typed (manual) pairing is supported over HTTPS**, using a short
+   fingerprint the DJ compares by eye. It replaces revision 2's "manual
+   pairing is not supported over HTTPS". The flow is under "What the phone
+   must do" in revision 2 below.
+2. **Short fingerprint** defined (below), for the desktop to display and the
+   phone to show for comparison.
+
+**Fingerprints**
+
+- **Full fingerprint:** SHA-256 of the server certificate's DER bytes, as 64
+  lower-case hex characters with no separators. This is what the QR carries as
+  `certFingerprint` and what the phone pins.
+- **Short fingerprint:** the first 16 hex characters of the full fingerprint,
+  upper-cased, in four groups of four joined by hyphens.
+
+Worked example:
+
+```
+full:  3f9a01c277bed4104cadeac43e1310162266e1edaa616c3855705d7e5b6a115f
+short: 3F9A-01C2-77BE-D410
+```
+
+The short form is only for the DJ to compare. The phone always pins and checks
+the **full** fingerprint.
+
+**Rules that apply to every pairing**
+
+- **QR pairing is unchanged:** the phone pins `certFingerprint` from the QR and
+  rejects any other certificate.
+- **After pairing, a fingerprint mismatch is never accepted automatically.**
+  The phone treats it as "the desktop changed or can't be trusted", sends
+  nothing on that connection, and requires the DJ to pair again.
 
 ## Revision 2 (2026-11-11): HTTPS, pinned certificate, /v1/status
 
@@ -38,9 +82,24 @@ scans in person) authenticates the desktop without a certificate authority.
   `desktopId`). A fingerprint mismatch later means the desktop's identity
   changed (reinstall or a deliberate reset): treat it like 401, clear the
   pairing and show "Pair again".
-- Manual entry (no QR) has no fingerprint. **TODO(sync-tls):** the desktop
-  should also show the fingerprint (or a short form of it) for the DJ to
-  type; until then manual pairing is not supported over HTTPS.
+- **Typed pairing (revision 3).** When the DJ pairs without the QR, in this
+  order:
+  1. The DJ enters the desktop's address, port and pairing code on the phone.
+  2. The phone connects over HTTPS, accepting the server's certificate for
+     this connection only (for example to call `GET /v1/hello`, which carries
+     no secret), and records the full fingerprint the server presented. It
+     does **not** send the pairing code yet.
+  3. The phone shows the short fingerprint and asks the DJ to confirm it
+     matches the one on the desktop's pairing screen.
+  4. Only after the DJ confirms does the phone call `POST /v1/pair` with the
+     code, on a connection that presents that same full fingerprint. If the
+     fingerprint differs from step 2, abort.
+  5. On success the phone pins the full fingerprint for all future
+     connections, exactly as for a QR pairing. If the DJ declines at step 3,
+     the phone discards the address, code and fingerprint and sends nothing.
+
+  The code is sent last so it never reaches an impostor: a device pretending
+  to be the desktop is caught at step 3, before it can see the code.
 - On 426, stop syncing and tell the DJ to update the app.
 
 
@@ -100,7 +159,8 @@ Desktop shows a QR code (and the same values as text, for manual entry):
   time.
 - `certFingerprint` (revision 2): see TLS above.
 
-Phone, after scanning (or after the DJ types an address and the code):
+Phone, after scanning (or after the DJ types an address and the code; typed
+pairing adds the fingerprint confirmation in revision 3 before step 2):
 
 1. `GET /v1/hello` on each address until one answers with `v: 1` and (for a QR
    code) the same `desktopId`.
@@ -288,6 +348,11 @@ the phone's next request get 401.
 - [x] Self-signed certificate generated once, fingerprint in the QR (rev. 2)
 - [x] Single-use expiring pairing code with attempt limit; QR data URL
 - [ ] Pairing screen (Settings UI)
+- [ ] **TODO(rev. 3):** the Phase 4 pairing screen shows the short fingerprint
+      alongside the typed address, port and code, so the DJ has something to
+      compare against
+- [ ] **TODO(rev. 3):** code helper for the short-fingerprint format, with a
+      unit test
 - [x] Paired phones stored with hashed secrets; revoke
 - [ ] Paired devices list with unpair (Settings UI)
 - [x] `/v1/hello`, `/v1/pair`, `/v1/status`
