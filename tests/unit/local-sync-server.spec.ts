@@ -460,7 +460,11 @@ test('a taken port moves to the next one and reports it', async () => {
   try {
     const { port } = await startServer({ preferredPort: taken, portAttempts: 5 })
     expect(port).toBeGreaterThan(taken)
-    expect(server!.listenInfo()).toEqual({ port, addresses: [`127.0.0.1:${port}`] })
+    expect(server!.listenInfo()).toEqual({
+      port,
+      hosts: ['127.0.0.1'],
+      addresses: [`127.0.0.1:${port}`]
+    })
   } finally {
     await new Promise<void>((r) => blocker.close(() => r()))
   }
@@ -530,4 +534,68 @@ test('start then stop leaves no open handles, even with a phone connection held 
   // A stopped server issues no payload.
   codes.issue()
   expect(server.pairingPayload()).toBeNull()
+})
+
+// ── Pairing screen hooks (phone pairing screen) ───────────────────────────
+
+test('the pairing listener hears a successful pair, without the code or secret', async () => {
+  const events: unknown[] = []
+  const { port, codes } = await startServer({ onPairingEvent: (e) => events.push(e) })
+  const { code } = codes.issue()
+  const res = await call(port, 'POST', '/v1/pair', {
+    body: { pairingCode: code, deviceId: PHONE_ID, deviceName: 'DeepCrated on iPhone' }
+  })
+  expect(res.status).toBe(200)
+  expect(events).toEqual([
+    { type: 'paired', phoneId: PHONE_ID, displayName: 'DeepCrated on iPhone' }
+  ])
+  const text = JSON.stringify(events)
+  expect(text).not.toContain(res.body.deviceSecret as string)
+  expect(text).not.toContain(normalizePairingCode(code))
+})
+
+test('the pairing listener hears a lockout once, and wrong tries before it are silent', async () => {
+  const events: unknown[] = []
+  const { port, codes } = await startServer({ onPairingEvent: (e) => events.push(e) })
+  const { code } = codes.issue()
+  const wrong = code === 'AAA-AAA' ? 'BBB-BBB' : 'AAA-AAA'
+  for (let i = 0; i < 5; i++) {
+    await call(port, 'POST', '/v1/pair', {
+      body: { pairingCode: wrong, deviceId: PHONE_ID, deviceName: 'iPhone' }
+    })
+    expect(events).toEqual(i < 4 ? [] : [{ type: 'locked' }])
+  }
+})
+
+test('a throwing pairing listener does not break pairing', async () => {
+  const { port, codes } = await startServer({
+    onPairingEvent: () => {
+      throw new Error('boom')
+    }
+  })
+  await pairPhone(port, codes)
+  expect(phones.list()).toHaveLength(1)
+})
+
+test('listenInfo carries bare hosts beside host:port addresses', async () => {
+  const { server, port } = await startServer()
+  expect(server.listenInfo()).toEqual({
+    port,
+    hosts: ['127.0.0.1'],
+    addresses: [`127.0.0.1:${port}`]
+  })
+})
+
+test('a desktop name given as a function is read live by hello and the QR payload', async () => {
+  let name = 'Studio iMac'
+  const { server, port, codes } = await startServer({ desktopName: () => name })
+  codes.issue()
+  expect((await call(port, 'GET', '/v1/hello')).body.desktopName).toBe('Studio iMac')
+  name = 'Booth laptop'
+  expect((await call(port, 'GET', '/v1/hello')).body).toEqual({
+    v: PROTOCOL_VERSION,
+    desktopId: DESKTOP_ID,
+    desktopName: 'Booth laptop'
+  })
+  expect(server.pairingPayload()?.desktopName).toBe('Booth laptop')
 })

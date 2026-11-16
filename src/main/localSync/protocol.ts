@@ -44,6 +44,14 @@ export interface PairingPayload {
 // SHA-256 of the DER certificate: 64 lower-case hex characters, no colons.
 export const FINGERPRINT_RE = /^[0-9a-f]{64}$/
 
+// Revision 3's short fingerprint, for the DJ to compare by eye: the first 16
+// hex characters, upper-cased, four groups of four joined by hyphens
+// (3F9A-01C2-77BE-D410). Display only; the phone pins the full fingerprint.
+export function shortFingerprint(fingerprint: string): string {
+  if (!FINGERPRINT_RE.test(fingerprint)) throw new Error('Not a SHA-256 fingerprint')
+  return fingerprint.slice(0, 16).toUpperCase().match(/.{4}/g)!.join('-')
+}
+
 export function buildPairingPayload(input: {
   desktopId: string
   desktopName: string

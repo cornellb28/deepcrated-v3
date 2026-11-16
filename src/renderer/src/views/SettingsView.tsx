@@ -12,6 +12,7 @@ import { useLibraryStore } from '../store/useLibraryStore'
 import { FilenameTemplateEditor } from '../components/FilenameTemplateEditor'
 import { describePlan } from '../lib/plan'
 import { SeePlans } from '../components/SeePlans'
+import { PhoneSyncSettings } from '../components/PhoneSyncSettings'
 
 // Settings as a full page rather than a modal. A modal was wrong for this:
 // it capped the content at 440px with everything stacked in one scroll, and
@@ -43,12 +44,13 @@ const SERATO_OVERWRITE_KEY = 'serato_overwrite_existing'
 // whichever tab was open last.
 export const SETTINGS_TAB_KEY = 'settings_tab'
 
-type TabId = 'account' | 'plan' | 'library' | 'serato' | 'privacy'
+type TabId = 'account' | 'plan' | 'library' | 'serato' | 'phone' | 'privacy'
 const TABS: { id: TabId; label: string }[] = [
   { id: 'account', label: 'Account' },
   { id: 'plan', label: 'Plan' },
   { id: 'library', label: 'Library' },
   { id: 'serato', label: 'Serato' },
+  { id: 'phone', label: 'Phone sync' },
   { id: 'privacy', label: 'Privacy' }
 ]
 
@@ -58,6 +60,7 @@ function isTabId(value: string | null): value is TabId {
     value === 'plan' ||
     value === 'library' ||
     value === 'serato' ||
+    value === 'phone' ||
     value === 'privacy'
   )
 }
@@ -672,6 +675,13 @@ export function SettingsView({
                 Overwrite existing crate of the same name
               </label>
             </Section>
+          </TabsContent>
+
+          {/* ── Phone sync ──────────────────────────────────────────── */}
+          {/* Mounted only while its tab is open, so a pairing code ends
+              when the DJ leaves the tab (PhoneSyncSettings cancels it). */}
+          <TabsContent value="phone">
+            {tab === 'phone' && <PhoneSyncSettings Section={Section} />}
           </TabsContent>
 
           {/* ── Privacy ─────────────────────────────────────────────── */}

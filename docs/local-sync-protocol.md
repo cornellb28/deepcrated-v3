@@ -1,11 +1,11 @@
 # Local wifi sync protocol (v1)
 
-Status: phone side built (`src/sync`, `src/db/patchOutbox.ts`) against
-revision 1. Desktop server, pairing and auth built against **revision 2**
-(`src/main/localSync/`, branch `feature/local-sync`); patch and snapshot not
-built yet. Revision 3 (typed pairing) changes only client behavior and is not
-built on either side yet. If either side needs a change, change this document
-first.
+Status: phone side follows **revision 3** (deepcrated-mobile commit
+`eb51a22`: `src/sync`, `src/db/patchOutbox.ts`, `modules/pinned-https`).
+Desktop server, pairing, auth and the Settings > Phone sync pairing screen
+follow revision 3 (`src/main/localSync/`, branch `feature/local-sync`); patch
+and snapshot are not built yet. If either side needs a change, change this
+document first.
 
 ## Revision 3 (2026-11-14): typed pairing with fingerprint confirmation
 
@@ -40,6 +40,12 @@ short: 3F9A-01C2-77BE-D410
 
 The short form is only for the DJ to compare. The phone always pins and checks
 the **full** fingerprint.
+
+**Implementation note (phone, `eb51a22`).** For typed pairing the phone
+reads the presented fingerprint during the TLS handshake alone and sends no
+request at all, not even `GET /v1/hello`, until the DJ confirms the short
+fingerprint. That is stricter than step 2 below, which allows an unsecret
+hello first; both are compliant.
 
 **Rules that apply to every pairing**
 
@@ -347,14 +353,15 @@ the phone's next request get 401.
       (firewall, permissions, no network) reported, not retried
 - [x] Self-signed certificate generated once, fingerprint in the QR (rev. 2)
 - [x] Single-use expiring pairing code with attempt limit; QR data URL
-- [ ] Pairing screen (Settings UI)
-- [ ] **TODO(rev. 3):** the Phase 4 pairing screen shows the short fingerprint
-      alongside the typed address, port and code, so the DJ has something to
-      compare against
-- [ ] **TODO(rev. 3):** code helper for the short-fingerprint format, with a
-      unit test
+- [x] Pairing screen (Settings > Phone sync): on/off, status and port, QR,
+      expiry countdown, new code when it expires or is used
+- [x] The pairing screen shows the short fingerprint (rev. 3) alongside the
+      typed addresses, port and code, so the DJ has something to compare against
+- [x] Code helper for the short-fingerprint format (`shortFingerprint`), with a
+      unit test against the worked example
 - [x] Paired phones stored with hashed secrets; revoke
-- [ ] Paired devices list with unpair (Settings UI)
+- [x] Paired devices list with revoke (Settings > Phone sync)
+- [x] Editable desktop name (defaults to the hostname), used by hello and the QR
 - [x] `/v1/hello`, `/v1/pair`, `/v1/status`
 - [ ] `/v1/patch`, `/v1/snapshot`
 - [x] mDNS advertising (groundwork)

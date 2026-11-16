@@ -422,6 +422,21 @@ const api = {
     offProgress: () => ipcRenderer.removeAllListeners('identity:progress')
   },
 
+  // Settings > Phone sync. Answers and pushes are PhoneSyncState (see
+  // main/localSync/view.ts): status, pairing details, paired phones. No
+  // secrets, token hashes or key material ever cross this bridge.
+  localSync: {
+    getState: () => ipcRenderer.invoke('local-sync:get-state'),
+    setEnabled: (enabled: boolean) => ipcRenderer.invoke('local-sync:set-enabled', enabled),
+    startPairing: () => ipcRenderer.invoke('local-sync:start-pairing'),
+    cancelPairing: () => ipcRenderer.invoke('local-sync:cancel-pairing'),
+    revoke: (phoneId: string) => ipcRenderer.invoke('local-sync:revoke', phoneId),
+    setDesktopName: (name: string) => ipcRenderer.invoke('local-sync:set-desktop-name', name),
+    onChanged: (cb: (state: unknown) => void) =>
+      ipcRenderer.on('local-sync:changed', (_e, s) => cb(s)),
+    offChanged: () => ipcRenderer.removeAllListeners('local-sync:changed')
+  },
+
   // Anonymous stats consent and per-item privacy. Deliberately small: no
   // canCollect, no install id, no queue access from the renderer.
   privacy: {

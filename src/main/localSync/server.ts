@@ -44,7 +44,9 @@ export type Routes = Record<string, RouteHandler>
 export interface LocalSyncServerOptions {
   phones: PhoneStore
   desktopId: string
-  desktopName: string
+  // A function when the DJ can rename the desktop while the server runs:
+  // hello and the QR read it on every request.
+  desktopName: string | (() => string)
   tls: { cert: string; key: string; fingerprint: string }
   routes?: Routes
   // Hosts to listen on. Defaults to this machine's private LAN addresses.
@@ -55,10 +57,19 @@ export interface LocalSyncServerOptions {
   pairingCodes?: PairingCodes
   now?: () => number
   log?: (message: string) => void
+  // Told when the live pairing code ends because of a phone: used to pair,
+  // or invalidated after too many wrong attempts. Never given the code.
+  onPairingEvent?: (event: PairingEvent) => void
 }
+
+export type PairingEvent =
+  { type: 'paired'; phoneId: string; displayName: string } | { type: 'locked' }
 
 export interface ListenInfo {
   port: number
+  // Bare hosts, for the typed-pairing details.
+  hosts: string[]
+  // host:port, as in the QR.
   addresses: string[]
 }
 
@@ -105,15 +116,45 @@ export function isPrivateIPv4(address: string): boolean {
   return a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168)
 }
 
-export function lanAddresses(): string[] {
+// Interfaces that are never the DJ's real wifi or ethernet, by name: loopback,
+// VPN and tunnels (utun, tun/tap, ppp, ipsec, WireGuard, Tailscale,
+// ZeroTier), Apple's peer-to-peer links (awdl, llw, anpi), virtual machine
+// and container networks (bridge, vmnet, vboxnet, virbr, docker, veth, CNI
+// plugins), and Windows adapters named for Hyper-V, WSL, VMware, VirtualBox
+// or a VPN. Their addresses are often private (192.168.64.x for a VM, 10.x
+// for a VPN), so the address range alone does not catch them. A phone could
+// not reach them anyway, and binding there would offer the server to a VM or
+// a VPN peer.
+const EXCLUDED_INTERFACE_PREFIX =
+  /^(lo|utun|tun|tap|ppp|ipsec|wg|gif|stf|awdl|llw|anpi|bridge|vmnet|vboxnet|virbr|docker|br-|veth|cni|flannel|cali|vxlan|tailscale|zt|feth)/i
+const EXCLUDED_INTERFACE_WORD =
+  /(virtual|vmware|hyper-v|vethernet|wsl|loopback|vpn|tailscale|zerotier|docker|npcap|tap-windows)/i
+
+export function isExcludedInterface(name: string): boolean {
+  return EXCLUDED_INTERFACE_PREFIX.test(name) || EXCLUDED_INTERFACE_WORD.test(name)
+}
+
+type InterfaceMap = Record<
+  string,
+  { address: string; family: string | number; internal: boolean }[] | undefined
+>
+
+// Pure, for tests: what lanAddresses() keeps from os.networkInterfaces().
+export function lanAddressesFrom(interfaces: InterfaceMap): string[] {
   const out: string[] = []
-  for (const list of Object.values(networkInterfaces())) {
+  for (const [name, list] of Object.entries(interfaces)) {
+    if (isExcludedInterface(name)) continue
     for (const info of list ?? []) {
-      if (info.family === 'IPv4' && !info.internal && isPrivateIPv4(info.address))
-        out.push(info.address)
+      // family is the number 4 on some Node 18 builds.
+      const ipv4 = info.family === 'IPv4' || info.family === 4
+      if (ipv4 && !info.internal && isPrivateIPv4(info.address)) out.push(info.address)
     }
   }
   return Array.from(new Set(out))
+}
+
+export function lanAddresses(): string[] {
+  return lanAddressesFrom(networkInterfaces())
 }
 
 // ── The listener ──────────────────────────────────────────────────────────
@@ -195,6 +236,8 @@ function closeServer(server: Server): Promise<void> {
 export function createLocalSyncServer(options: LocalSyncServerOptions): LocalSyncServer {
   const now = options.now ?? Date.now
   const log = options.log ?? console.warn
+  const desktopName = (): string =>
+    typeof options.desktopName === 'function' ? options.desktopName() : options.desktopName
   const codes = options.pairingCodes ?? new PairingCodes({ now })
   const routes: Routes = { 'GET /v1/status': status, ...(options.routes ?? {}) }
   const publicPaths = new Set(['/v1/hello', '/v1/pair'])
@@ -233,7 +276,7 @@ export function createLocalSyncServer(options: LocalSyncServerOptions): LocalSyn
       return send(res, 200, {
         v: PROTOCOL_VERSION,
         desktopId: options.desktopId,
-        desktopName: options.desktopName
+        desktopName: desktopName()
       })
     }
 
@@ -267,12 +310,23 @@ export function createLocalSyncServer(options: LocalSyncServerOptions): LocalSyn
     if (typeof pairingCode !== 'string' || !isUuidV4(deviceId) || typeof deviceName !== 'string') {
       return fail(res, 400, 'bad_request')
     }
-    if (codes.redeem(pairingCode) !== 'ok') return fail(res, 403, 'pairing_code_invalid')
+    const redeemed = codes.redeem(pairingCode)
+    if (redeemed === 'locked') notify({ type: 'locked' })
+    if (redeemed !== 'ok') return fail(res, 403, 'pairing_code_invalid')
     const name = deviceName.trim().slice(0, 100) || 'Phone'
     const deviceSecret = generateDeviceSecret()
     options.phones.savePairing(deviceId, name, deviceSecret, now())
     log(`[local-sync] paired a phone (${name})`)
     send(res, 200, { deviceSecret })
+    notify({ type: 'paired', phoneId: deviceId, displayName: name })
+  }
+
+  function notify(event: PairingEvent): void {
+    try {
+      options.onPairingEvent?.(event)
+    } catch (err) {
+      log(`[local-sync] pairing listener failed: ${(err as Error).message}`)
+    }
   }
 
   function authenticate(req: IncomingMessage): PairedPhone | null {
@@ -301,12 +355,16 @@ export function createLocalSyncServer(options: LocalSyncServerOptions): LocalSyn
         attempts: options.portAttempts ?? DEFAULT_PORT_ATTEMPTS
       })
       servers = opened.servers
-      info = { port: opened.port, addresses: hosts.map((h) => formatAddress(h, opened.port)) }
+      info = {
+        port: opened.port,
+        hosts: [...hosts],
+        addresses: hosts.map((h) => formatAddress(h, opened.port))
+      }
       if (options.advertiser) {
         try {
           options.advertiser.start({
             desktopId: options.desktopId,
-            desktopName: options.desktopName,
+            desktopName: desktopName(),
             port: opened.port
           })
           advertising = true
@@ -343,7 +401,7 @@ export function createLocalSyncServer(options: LocalSyncServerOptions): LocalSyn
       if (!info || !live) return null
       return buildPairingPayload({
         desktopId: options.desktopId,
-        desktopName: options.desktopName,
+        desktopName: desktopName(),
         addresses: info.addresses,
         pairingCode: live.code,
         certFingerprint: options.tls.fingerprint

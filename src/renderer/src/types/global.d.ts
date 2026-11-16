@@ -332,6 +332,17 @@ declare global {
         offProgress: () => void
       }
 
+      localSync: {
+        getState: () => Promise<PhoneSyncState>
+        setEnabled: (enabled: boolean) => Promise<PhoneSyncResult>
+        startPairing: () => Promise<PhoneSyncResult>
+        cancelPairing: () => Promise<PhoneSyncResult>
+        revoke: (phoneId: string) => Promise<PhoneSyncResult>
+        setDesktopName: (name: string) => Promise<PhoneSyncResult>
+        onChanged: (cb: (state: PhoneSyncState) => void) => void
+        offChanged: () => void
+      }
+
       privacy: {
         getConsent: () => Promise<ConsentState>
         setConsent: (
@@ -622,6 +633,51 @@ declare global {
     // An AcoustID key and MusicBrainz contact are configured.
     lookupAvailable: boolean
     fingerprintAvailable: boolean
+  }
+
+  // Mirror of main/localSync/view.ts (the renderer cannot import main
+  // types). Keep the two in step.
+  type LocalSyncStatus =
+    | { state: 'off' }
+    | { state: 'starting' }
+    | { state: 'running'; port: number; addresses: string[] }
+    | { state: 'error'; code: string; message: string }
+
+  interface PhoneSyncPhone {
+    phoneId: string
+    displayName: string
+    pairedAt: number
+    lastSeenAt: number | null
+    revokedAt: number | null
+  }
+
+  interface PhoneSyncPairing {
+    qrDataUrl: string
+    hosts: string[]
+    port: number
+    pairingCode: string
+    shortFingerprint: string
+    expiresAt: number
+  }
+
+  type PhoneSyncPairingEnd =
+    | { reason: 'paired'; displayName: string; at: number }
+    | { reason: 'locked'; at: number }
+
+  interface PhoneSyncState {
+    enabled: boolean
+    status: LocalSyncStatus
+    desktopName: string
+    defaultDesktopName: string
+    pairing: PhoneSyncPairing | null
+    lastPairingEnd: PhoneSyncPairingEnd | null
+    phones: PhoneSyncPhone[]
+  }
+
+  interface PhoneSyncResult {
+    ok: boolean
+    state?: PhoneSyncState
+    error?: string
   }
 
   interface ConsentState {

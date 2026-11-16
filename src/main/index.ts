@@ -147,7 +147,19 @@ import {
 } from './identity/runtime'
 import { artistCleaner, processNewArtists, setArtistCleanSender } from './artist/runtime'
 import { startStatsUploader, flushStatsOnQuit, shouldFlushOnQuit } from './stats/runtime'
-import { startLocalSyncIfEnabled, stopLocalSync, isLocalSyncEnabled } from './localSync/runtime'
+import {
+  startLocalSyncIfEnabled,
+  stopLocalSync,
+  isLocalSyncEnabled,
+  setLocalSyncEnabled,
+  setLocalSyncListener,
+  getPhoneSyncState,
+  startPairing,
+  cancelPairing,
+  revokePhone,
+  setDesktopName
+} from './localSync/runtime'
+import { isUuidV4 } from './localSync/schema'
 
 // Raise file handle limit for large libraries
 try {
@@ -3474,6 +3486,41 @@ app.whenReady().then(() => {
     return { ok: true }
   })
 
+  // ── Phone sync (local wifi) ──────────────────────────────
+  // Settings > Phone sync. Every answer is a PhoneSyncState from
+  // localSync/view.ts, which never carries a device secret, a token hash or
+  // the certificate key. Changes made elsewhere (a phone pairing, the server
+  // failing to start) arrive over 'local-sync:changed'.
+
+  ipcMain.handle('local-sync:get-state', () => getPhoneSyncState())
+
+  ipcMain.handle('local-sync:set-enabled', async (_e, enabled: unknown) => {
+    if (typeof enabled !== 'boolean') return { ok: false, error: 'Invalid value' }
+    await setLocalSyncEnabled(enabled)
+    return { ok: true, state: getPhoneSyncState() }
+  })
+
+  ipcMain.handle('local-sync:start-pairing', async () => {
+    try {
+      return { ok: true, state: await startPairing() }
+    } catch (err) {
+      return { ok: false, error: (err as Error).message }
+    }
+  })
+
+  ipcMain.handle('local-sync:cancel-pairing', () => ({ ok: true, state: cancelPairing() }))
+
+  ipcMain.handle('local-sync:revoke', (_e, phoneId: unknown) => {
+    if (!isUuidV4(phoneId)) return { ok: false, error: 'Invalid phone' }
+    revokePhone(phoneId)
+    return { ok: true, state: getPhoneSyncState() }
+  })
+
+  ipcMain.handle('local-sync:set-desktop-name', async (_e, name: unknown) => {
+    if (typeof name !== 'string') return { ok: false, error: 'Invalid name' }
+    return { ok: true, state: await setDesktopName(name) }
+  })
+
   // ── Privacy / anonymous stats ────────────────────────────
   // The renderer can read the consent state and flip it, and mark items
   // private. It never sees the install id or the queue, and there is no
@@ -3808,6 +3855,7 @@ app.whenReady().then(() => {
   // no window exists, so auth.ts pushes through this listener rather than
   // holding a window reference of its own.
   setAuthStateListener((state) => mainWindow?.webContents.send('auth:changed', state))
+  setLocalSyncListener((state) => mainWindow?.webContents.send('local-sync:changed', state))
 
   // Restore a stored session, then tell the renderer. Deliberately not
   // awaited before createWindow: this is one network round trip, and
