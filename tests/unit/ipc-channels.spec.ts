@@ -14,8 +14,14 @@ import { REPO_ROOT } from '../helpers/paths'
 // and they are in different files that are never compiled together. This is
 // the only place the two halves get compared.
 
-const mainSource = readFileSync(join(REPO_ROOT, 'src/main/index.ts'), 'utf8')
-const preloadSource = readFileSync(join(REPO_ROOT, 'src/preload/index.ts'), 'utf8')
+// Main registers handlers in index.ts and, for the launch screen (which is up
+// before index.ts loads), in launchScreen.ts; each preload invokes its own.
+const mainSource = ['src/main/index.ts', 'src/main/launchScreen.ts']
+  .map((f) => readFileSync(join(REPO_ROOT, f), 'utf8'))
+  .join('\n')
+const preloadSource = ['src/preload/index.ts', 'src/preload/splash.ts']
+  .map((f) => readFileSync(join(REPO_ROOT, f), 'utf8'))
+  .join('\n')
 
 function matchAll(source: string, pattern: RegExp): string[] {
   return [...source.matchAll(pattern)].map((m) => m[1])

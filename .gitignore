@@ -16,8 +16,20 @@ playwright-report
 .env
 .env.*
 !.env.example
+# Release publishing credentials (scripts/publish-release.mjs). Already
+# covered by .env.* above; listed by name so it can never be un-ignored by
+# accident. The script refuses to run if this stops being ignored.
+.env.release
 
 # Delimiter write-back: backups and dry-run reports
 backups/
 delimiter-dry-run.json
 delimiter-dry-run.csv
+
+# PyInstaller work files from sidecar/build.sh (sidecar/dist is covered by "dist")
+sidecar/build/
+sidecar/*.spec
+
+# Chromaprint fpcalc binaries, fetched and checksum-verified by
+# scripts/fetch-fpcalc.mjs (the script and scripts/fpcalc-*.sha256 are tracked)
+resources/fpcalc/

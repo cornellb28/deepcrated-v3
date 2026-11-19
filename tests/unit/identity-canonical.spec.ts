@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test'
 import {
   CANONICAL_ID_PATTERN,
   computeCanonicalTrackId,
+  computeStatsTrackId,
   fingerprintHash,
   normalizeIsrc,
   normalizeMbid
@@ -140,5 +141,61 @@ test('the id pattern rejects paths and look-alikes', () => {
     `x isrc:${ISRC}`
   ]) {
     expect(CANONICAL_ID_PATTERN.test(bad), bad).toBe(false)
+  }
+})
+
+// ── the stats id: never a recording id the online lookup found ────────────
+
+test('stats id: same priority as the canonical id when the recording id came from a tag', () => {
+  for (const inputs of [
+    { isrc: ISRC, musicbrainz_recording_id: MBID, fingerprint_hash: FP },
+    { isrc: null, musicbrainz_recording_id: MBID, fingerprint_hash: FP },
+    { isrc: null, musicbrainz_recording_id: MBID, fingerprint_hash: null },
+    { isrc: null, musicbrainz_recording_id: null, fingerprint_hash: FP }
+  ]) {
+    expect(computeStatsTrackId({ ...inputs, recording_id_source: 'tag' })).toBe(
+      computeCanonicalTrackId(inputs)
+    )
+  }
+})
+
+test('stats id: a looked-up recording id is skipped for the fingerprint hash', () => {
+  const inputs = { isrc: null, musicbrainz_recording_id: MBID, fingerprint_hash: FP }
+  expect(computeCanonicalTrackId(inputs)).toBe(`mbid:${MBID}`) // local features keep it
+  expect(computeStatsTrackId({ ...inputs, recording_id_source: 'lookup' })).toBe(`fp:${FP}`)
+})
+
+test('stats id: a recording id of unknown source is never used', () => {
+  for (const source of [null, undefined, '', 'Tag', 'lookup ']) {
+    expect(
+      computeStatsTrackId({
+        isrc: null,
+        musicbrainz_recording_id: MBID,
+        recording_id_source: source,
+        fingerprint_hash: FP
+      }),
+      String(source)
+    ).toBe(`fp:${FP}`)
+  }
+})
+
+test('stats id: an ISRC still wins whatever the recording id source', () => {
+  expect(
+    computeStatsTrackId({
+      isrc: ISRC,
+      musicbrainz_recording_id: MBID,
+      recording_id_source: 'lookup',
+      fingerprint_hash: FP
+    })
+  ).toBe(`isrc:${ISRC}`)
+})
+
+test('stats id: every id it produces still matches the pattern the stats allowlist enforces', () => {
+  for (const id of [
+    computeStatsTrackId({ isrc: ISRC }),
+    computeStatsTrackId({ musicbrainz_recording_id: MBID, recording_id_source: 'tag' }),
+    computeStatsTrackId({ fingerprint_hash: FP })
+  ]) {
+    expect(id).toMatch(CANONICAL_ID_PATTERN)
   }
 })

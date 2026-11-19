@@ -11,8 +11,11 @@
 
 import { CANONICAL_ID_PATTERN } from '../identity/canonical'
 
-// Track-scoped events also carry the track's canonical_track_id (isrc:…,
-// mbid:… or fp:…, see identity/canonical.ts). It is not declared per event:
+// Track-scoped events also carry a canonical_track_id field (isrc:…, mbid:…
+// or fp:…). Its value is the stats id from computeStatsTrackId in
+// identity/canonical.ts — the same shapes as the local canonical_track_id
+// column, but never a recording id the online lookup found, so the lookup
+// toggle cannot change it. It is not declared per event:
 // enqueueStat attaches it from the database — callers cannot supply one —
 // and validateEvent requires it to match CANONICAL_ID_PATTERN, which no path
 // or name can. It is the only identifier of a track that ever leaves the

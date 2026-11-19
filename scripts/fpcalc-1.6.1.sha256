@@ -1,0 +1,10 @@
+# Chromaprint fpcalc 1.6.1 — official release builds, pinned by SHA-256.
+# Source: https://github.com/acoustid/chromaprint/releases/tag/v1.6.1
+# (digests as published by GitHub for each release asset). Read by
+# scripts/fetch-fpcalc.mjs; a download that does not match is rejected.
+#
+# <sha256>  <asset>  <platform-arch folder under resources/fpcalc>
+254f23cb2d290069ba1d3d28199414fbf66d2054fc2f6821c2fc62ed39470a95  chromaprint-fpcalc-1.6.1-macos-arm64.tar.gz  darwin-arm64
+0de8947c09dd93c44cece2f5947d408136a3b6692eed726d1f109506500bd773  chromaprint-fpcalc-1.6.1-macos-x86_64.tar.gz  darwin-x64
+735d6182b38e9f364b84ce6f4ccd682c75e2851de89735711d6b762d12b92a4e  chromaprint-fpcalc-1.6.1-windows-x86_64.zip  win32-x64
+fc16cd37a70168040bc9ceb45f1d4d1216f5a75bc4c9cf8564bea70ac6a45733  chromaprint-fpcalc-1.6.1-linux-x86_64.tar.gz  linux-x64

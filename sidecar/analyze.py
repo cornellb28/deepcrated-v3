@@ -555,6 +555,90 @@ def run_identity_batch():
         print(json.dumps(entry), flush=True)
 
 
+# ─── Tags as Serato sees them ────────────────────────────
+
+# The frames/atoms/keys Serato DJ shows for each column, per container —
+# confirmed field by field against a real Serato `database V2` (Settings >
+# Serato > Tags in your files). Deliberately NOT _extract_tags: that reads
+# fallbacks (PUBLISHER, any COMM) to fill DeepCrated on import, whereas this
+# must report exactly what Serato will display, so the app can tell which
+# files are out of step.
+_SERATO_ID3 = {
+    'artist': 'TPE1', 'album': 'TALB', 'genre': 'TCON', 'composer': 'TCOM',
+    'grouping': 'TIT1', 'remixer': 'TPE4', 'label': 'TPUB',
+}
+_SERATO_MP4 = {
+    'artist': '\xa9ART', 'album': '\xa9alb', 'genre': '\xa9gen',
+    'composer': '\xa9wrt', 'grouping': '\xa9grp', 'comment': '\xa9cmt',
+    'label': '----:com.apple.iTunes:LABEL',
+    'remixer': '----:com.apple.iTunes:REMIXER',
+}
+_SERATO_VORBIS = {
+    'artist': 'artist', 'album': 'album', 'genre': 'genre',
+    'composer': 'composer', 'grouping': 'grouping', 'comment': 'comment',
+    'label': 'organization', 'remixer': 'remixer',
+}
+SERATO_TAG_FIELDS = ('artist', 'album', 'genre', 'comment', 'label',
+                     'remixer', 'composer', 'grouping')
+
+
+def _text(v):
+    if v is None:
+        return ''
+    if isinstance(v, bytes):
+        v = v.decode('utf-8', errors='ignore')
+    return ' '.join(str(v).replace('\x00', ' ').split())
+
+
+def serato_visible_tags(filepath):
+    """{field: value} for the eight columns, '' where Serato shows nothing."""
+    out = {f: '' for f in SERATO_TAG_FIELDS}
+    audio = mutagen.File(filepath)
+    if audio is None or audio.tags is None:
+        return out
+    tags = audio.tags
+    if hasattr(tags, 'getall'):  # ID3: MP3, AIFF, WAV
+        for field, frame_id in _SERATO_ID3.items():
+            frame = tags.get(frame_id)
+            if frame is not None and getattr(frame, 'text', None):
+                out[field] = _text(' / '.join(str(t) for t in frame.text))
+        # The comment Serato shows is the one with an empty description;
+        # iTunNORM/iTunSMPB and the like are iTunes data, not comments.
+        plain = [c for c in tags.getall('COMM') if c.desc == '' and c.text]
+        if plain:
+            out['comment'] = _text(plain[0].text[0])
+        return out
+    keys = _SERATO_MP4 if type(audio).__name__ == 'MP4' else _SERATO_VORBIS
+    for field, key in keys.items():
+        try:
+            val = tags.get(key)
+        except Exception:
+            continue
+        if val:
+            out[field] = _text(val[0] if isinstance(val, list) else val)
+    return out
+
+
+def run_serato_tags_batch():
+    """
+    Reads file paths from stdin, one per line, and prints one JSON line per
+    path: {"filepath", "ok", "tags": {field: value}}. One process for the
+    whole library, like --identity-batch.
+    """
+    for line in sys.stdin:
+        filepath = line.rstrip('\r\n')
+        if not filepath:
+            continue
+        entry = {'filepath': filepath, 'ok': False, 'tags': None}
+        try:
+            if os.path.exists(filepath):
+                entry['tags'] = serato_visible_tags(filepath)
+                entry['ok'] = True
+        except Exception as e:
+            entry['error'] = str(e)
+        print(json.dumps(entry), flush=True)
+
+
 # ─── Entry point ─────────────────────────────────────────
 
 if __name__ == '__main__':
@@ -567,6 +651,9 @@ if __name__ == '__main__':
 
     if sys.argv[1] == '--identity-batch':
         run_identity_batch()
+        sys.exit(0)
+    if sys.argv[1] == '--serato-tags-batch':
+        run_serato_tags_batch()
         sys.exit(0)
 
     parser = argparse.ArgumentParser()

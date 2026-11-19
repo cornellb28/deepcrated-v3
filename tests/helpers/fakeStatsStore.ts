@@ -32,7 +32,7 @@ export class FakeStatsStore implements StatsStore {
     this.tracks.set(id, { private: isPrivate, canonical })
     return this
   }
-  getCanonicalTrackId(trackId: number): string | null {
+  getStatsTrackId(trackId: number): string | null {
     return this.tracks.get(trackId)?.canonical ?? null
   }
   addCrate(id: number, parent: number | null = null, isPrivate = false): this {

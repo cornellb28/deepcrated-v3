@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test'
 import Database from 'better-sqlite3'
 import {
   HEALTH_CHECKS,
+  getDuplicateSignals,
   getHealthQueue,
   getHealthSummary,
   isHealthCheckId,
@@ -25,6 +26,7 @@ interface Row {
   dur?: number
   missing?: number
   analysisError?: string | null
+  canon?: string | null
   // tags to apply as [field, value]
   tags?: [string, string][]
 }
@@ -35,7 +37,8 @@ function makeLibrary(rows: Row[], dismissed: [number, number][] = []): Database.
     CREATE TABLE tracks (
       id INTEGER PRIMARY KEY, filepath TEXT, title TEXT, artist TEXT, genre TEXT,
       key_camelot TEXT, artwork_hash TEXT, bpm REAL, file_size_bytes INTEGER,
-      duration_sec REAL, analysis_error TEXT, missing INTEGER NOT NULL DEFAULT 0
+      duration_sec REAL, analysis_error TEXT, canonical_track_id TEXT,
+      missing INTEGER NOT NULL DEFAULT 0
     );
     CREATE TABLE tags (id INTEGER PRIMARY KEY, field TEXT NOT NULL, value TEXT NOT NULL, UNIQUE(field, value));
     CREATE TABLE track_tags (track_id INTEGER NOT NULL, tag_id INTEGER NOT NULL, PRIMARY KEY (track_id, tag_id));
@@ -47,8 +50,8 @@ function makeLibrary(rows: Row[], dismissed: [number, number][] = []): Database.
   `)
   const insertTrack = db.prepare(
     `INSERT INTO tracks (id, filepath, title, artist, genre, key_camelot, artwork_hash, bpm,
-       file_size_bytes, duration_sec, missing, analysis_error)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       file_size_bytes, duration_sec, missing, analysis_error, canonical_track_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   )
   const findTag = db.prepare(`SELECT id FROM tags WHERE field = ? AND value = ?`)
   const insertTag = db.prepare(`INSERT INTO tags (field, value) VALUES (?, ?)`)
@@ -68,7 +71,8 @@ function makeLibrary(rows: Row[], dismissed: [number, number][] = []): Database.
       r.size ?? 1000 + r.id,
       r.dur ?? 100 + r.id * 7,
       r.missing ?? 0,
-      r.analysisError ?? null
+      r.analysisError ?? null,
+      r.canon ?? null
     )
     for (const [field, value] of r.tags ?? [['vibe', 'DARK']]) {
       const existing = findTag.get(field, value) as { id: number } | undefined
@@ -302,4 +306,95 @@ test('only known check ids are accepted from the outside', () => {
   expect(isHealthCheckId(undefined)).toBe(false)
   expect(isHealthCheckId(42)).toBe(false)
   expect(() => getHealthQueue(fixture(), 'bogus' as HealthCheckId)).toThrow()
+})
+
+// ── canonical_track_id as a third duplicate signal ────────────────────────
+
+const ISRC_ID = 'isrc:USRC17607839'
+const FP_ID = `fp:${'a'.repeat(40)}`
+
+test('same canonical id with different text is flagged as probably the same', () => {
+  const db = makeLibrary([
+    { id: 1, artist: 'Daft Punk', title: 'One More Time', canon: ISRC_ID },
+    {
+      id: 2,
+      artist: 'DAFT PUNK feat. Romanthony',
+      title: 'One More Time (Radio Edit)',
+      canon: ISRC_ID
+    },
+    { id: 3 }
+  ])
+  expect(getHealthQueue(db, 'duplicates')).toEqual([1, 2])
+  expect(getDuplicateSignals(db)).toEqual({ 1: ['canonical'], 2: ['canonical'] })
+})
+
+test('a fingerprint-based canonical id groups the same way', () => {
+  const db = makeLibrary([
+    { id: 1, canon: FP_ID },
+    { id: 2, canon: FP_ID }
+  ])
+  expect(getHealthQueue(db, 'duplicates')).toEqual([1, 2])
+})
+
+test('an empty, blank or absent canonical id never matches anything', () => {
+  const db = makeLibrary([
+    { id: 1, canon: null },
+    { id: 2, canon: null },
+    { id: 3, canon: '' },
+    { id: 4, canon: '' },
+    { id: 5, canon: '   ' },
+    { id: 6, canon: '   ' }
+  ])
+  expect(getHealthQueue(db, 'duplicates')).toEqual([])
+  expect(getDuplicateSignals(db)).toEqual({})
+})
+
+test('a canonical match with a missing track is not flagged', () => {
+  const db = makeLibrary([
+    { id: 1, canon: ISRC_ID },
+    { id: 2, canon: ISRC_ID, missing: 1 }
+  ])
+  expect(getHealthQueue(db, 'duplicates')).toEqual([])
+})
+
+test('a dismissed pair is not surfaced by the canonical signal either', () => {
+  const db = makeLibrary(
+    [
+      { id: 1, canon: ISRC_ID },
+      { id: 2, canon: ISRC_ID }
+    ],
+    [[2, 1]]
+  )
+  expect(getHealthQueue(db, 'duplicates')).toEqual([])
+})
+
+test('the existing signals keep their own labels, and a track can carry several', () => {
+  const db = makeLibrary([
+    { id: 1, artist: 'Foo', title: 'Bar' },
+    { id: 2, artist: 'foo', title: 'bar' },
+    { id: 3, size: 5_000_000, dur: 241.2 },
+    { id: 4, size: 5_000_000, dur: 241.4 },
+    { id: 5, artist: 'Same', title: 'Name', canon: ISRC_ID },
+    { id: 6, artist: 'Same', title: 'Name', canon: ISRC_ID }
+  ])
+  expect(getDuplicateSignals(db)).toEqual({
+    1: ['name'],
+    2: ['name'],
+    3: ['size'],
+    4: ['size'],
+    5: ['name', 'canonical'],
+    6: ['name', 'canonical']
+  })
+})
+
+test('the reasons cover exactly the tracks in the duplicates queue', () => {
+  const db = fixture()
+  db.prepare(`UPDATE tracks SET canonical_track_id = ? WHERE id IN (1, 18)`).run(ISRC_ID)
+  const queue = getHealthQueue(db, 'duplicates')
+  expect(queue).toContain(1)
+  expect(
+    Object.keys(getDuplicateSignals(db))
+      .map(Number)
+      .sort((a, b) => a - b)
+  ).toEqual([...queue].sort((a, b) => a - b))
 })

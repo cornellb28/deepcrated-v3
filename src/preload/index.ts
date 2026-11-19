@@ -192,6 +192,13 @@ const api = {
   // process loaded them. See staleBuild.ts.
   buildStatus: () => ipcRenderer.invoke('app:build-status'),
 
+  // The first library load finished (or failed). Main keeps the launch
+  // screen up until then; see src/main/launchScreen.ts.
+  // Settings > About: third-party licence notices (read-only text).
+  licenses: () => ipcRenderer.invoke('app:licenses'),
+  libraryReady: () => ipcRenderer.invoke('app:library-ready'),
+  libraryLoadFailed: (message: string) => ipcRenderer.invoke('app:library-load-failed', message),
+
   // Opens a web page in the system browser. Main validates the scheme.
   openExternal: (url: string) => ipcRenderer.invoke('shell:open-external', url),
 
@@ -285,7 +292,8 @@ const api = {
   // Crate Health (read-only)
   health: {
     summary: () => ipcRenderer.invoke('health:summary'),
-    queue: (checkId: string) => ipcRenderer.invoke('health:queue', checkId)
+    queue: (checkId: string) => ipcRenderer.invoke('health:queue', checkId),
+    duplicateSignals: () => ipcRenderer.invoke('health:duplicate-signals')
   },
 
   // Tracks
@@ -331,6 +339,10 @@ const api = {
     // Removes the tag from the library entirely, re-deriving every track
     // that carried it. `remove` above only unlinks one track.
     delete: (tagId: number) => ipcRenderer.invoke('tags:delete', tagId),
+    // Settings > Serato > Tags in your files: check every file against
+    // DeepCrated (read-only), then write the ones the DJ approves.
+    fileSyncPlan: () => ipcRenderer.invoke('tags:file-sync-plan'),
+    fileSyncWrite: (trackIds: number[]) => ipcRenderer.invoke('tags:file-sync-write', trackIds),
     remove: (trackId: number, tagId: number) => ipcRenderer.invoke('tags:remove', trackId, tagId),
     checkCandidates: (candidates: string[], field: string) =>
       ipcRenderer.invoke('tags:check-candidates', candidates, field),
@@ -500,6 +512,9 @@ const api = {
     pendingChanges: () => ipcRenderer.invoke('watcher:pending-changes'),
     acceptChange: (id: number) => ipcRenderer.invoke('watcher:accept-change', id),
     ignoreChange: (id: number) => ipcRenderer.invoke('watcher:ignore-change', id),
+    // A file held because it could be one of several missing tracks.
+    relinkHeld: (changeId: number) => ipcRenderer.invoke('watcher:relink-held', changeId),
+    importHeld: (filepath: string) => ipcRenderer.invoke('watcher:import-held', filepath),
     start: (rootId: number, rootPath: string) =>
       ipcRenderer.invoke('watcher:start', rootId, rootPath),
     stop: (rootId: number) => ipcRenderer.invoke('watcher:stop', rootId)

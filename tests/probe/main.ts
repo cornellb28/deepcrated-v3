@@ -12,7 +12,7 @@
 // resolve the way they do in production.
 
 import { app } from 'electron'
-import { mkdirSync, readFileSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 
 interface ProbeOp {
   fn: string
@@ -58,6 +58,7 @@ async function run(): Promise<void> {
   const stats = await import('../../src/main/stats')
   const identityEngine = await import('../../src/main/identity/engine')
   const artistRuntime = await import('../../src/main/artist/runtime')
+  const fileTagSync = await import('../../src/main/fileTagSync')
 
   const registry: Record<string, (...args: never[]) => unknown> = {
     ...(db as unknown as Record<string, (...args: never[]) => unknown>),
@@ -69,14 +70,17 @@ async function run(): Promise<void> {
     // ── artist-name cleanup ────────────────────────────────────────────
     // The real service, the real database and the real sidecar tag writer:
     // a write here changes an actual audio file.
-    artistProcess: ((ids: number[]) => artistRuntime.artistCleaner.processNewTracks(ids)) as unknown as (
+    artistProcess: ((ids: number[]) =>
+      artistRuntime.artistCleaner.processNewTracks(ids)) as unknown as (
       ...args: never[]
     ) => unknown,
     artistGroups: (() => artistRuntime.artistCleaner.suggestionGroups()) as unknown as (
       ...args: never[]
     ) => unknown,
     artistAccept: ((raw: string, name?: string) =>
-      artistRuntime.artistCleaner.acceptGroup(raw, name)) as unknown as (...args: never[]) => unknown,
+      artistRuntime.artistCleaner.acceptGroup(raw, name)) as unknown as (
+      ...args: never[]
+    ) => unknown,
     artistKeep: ((raw: string) => artistRuntime.artistCleaner.keepGroup(raw)) as unknown as (
       ...args: never[]
     ) => unknown,
@@ -120,15 +124,21 @@ async function run(): Promise<void> {
     ) => unknown,
     identityRecordingId: ((id: number, mbid: string) =>
       db.getIdentityStore().setRecordingId(id, mbid)) as unknown as (...args: never[]) => unknown,
-    identityCanonical: ((id: number) => db.getIdentityStore().getCanonicalTrackId(id)) as unknown as (
+    identityCanonical: ((id: number) =>
+      db.getIdentityStore().getCanonicalTrackId(id)) as unknown as (...args: never[]) => unknown,
+    // The id anonymous stats would carry, read through the real stats store.
+    identityStatsId: ((id: number) => db.getStatsStore().getStatsTrackId(id)) as unknown as (
       ...args: never[]
     ) => unknown,
     identityProgress: (() => db.getIdentityStore().progress()) as unknown as (
       ...args: never[]
     ) => unknown,
     // pauseAfterChecks: stop the run after that many shouldPause() calls, to
-    // simulate quitting mid-backfill.
-    identityBackfill: (async (pauseAfterChecks?: number) => {
+    // simulate quitting mid-backfill. lookupMatch: give the engine a stub
+    // lookup that answers with that recording id, gated on the real
+    // identity_lookup_enabled setting exactly as identity/runtime.ts gates it
+    // — so a spec can flip the toggle with setSetting. Never a network call.
+    identityBackfill: (async (pauseAfterChecks?: number | null, lookupMatch?: string) => {
       let checks = 0
       return identityEngine
         .createEngine({
@@ -139,13 +149,25 @@ async function run(): Promise<void> {
             fingerprint: `fingerprint-of-${filepath}`,
             duration: 200
           }),
-          lookup: null,
-          lookupEnabled: () => false,
-          isOnline: () => false,
-          shouldPause: () => pauseAfterChecks !== undefined && ++checks > pauseAfterChecks
+          lookup: lookupMatch
+            ? { resolve: async () => ({ status: 'match' as const, recordingId: lookupMatch }) }
+            : null,
+          lookupEnabled: () => db.getSetting('identity_lookup_enabled') === 'true',
+          isOnline: () => lookupMatch !== undefined,
+          shouldPause: () =>
+            pauseAfterChecks !== undefined &&
+            pauseAfterChecks !== null &&
+            ++checks > pauseAfterChecks
         })
         .run()
     }) as unknown as (...args: never[]) => unknown,
+    setSetting: ((key: string, value: string) => db.setSetting(key, value)) as unknown as (
+      ...args: never[]
+    ) => unknown,
+    // The DJ's pick for a held file, with the real file-exists check (a
+    // function cannot travel in the JSON ops).
+    relinkHeldFileOnDisk: ((changeId: number) =>
+      db.relinkHeldFile(changeId, existsSync)) as unknown as (...args: never[]) => unknown,
 
     // sweepTracks takes a Set, which does not survive JSON on the way in —
     // a spec sends the plain array of walked paths instead.
@@ -195,6 +217,33 @@ async function run(): Promise<void> {
     // The real write path behind sidecar:write-tags — per-file
     // serialization plus the CRATECLOUD_ID conflict retry.
     writeTagsForFile: tagWrites.writeTagsForFile as unknown as (...args: never[]) => unknown,
+
+    // ── Tags in your files (Serato) ────────────────────────────────────
+    // The real check (real sidecar reader) and the real writes it plans.
+    fileSyncPlan: (() => fileTagSync.planFileTagSync()) as unknown as (...args: never[]) => unknown,
+    fileSyncWrite: (async (trackIds: number[]) => {
+      const collected: unknown[] = []
+      const items = fileTagSync.writeItemsForSync(trackIds)
+      await tagWrites.editTagsResolvingIdConflicts(items, (r) => collected.push(r), {
+        writeSerato: false
+      })
+      return { items, results: collected }
+    }) as unknown as (...args: never[]) => unknown,
+    // What tags:rename does: the DB cascade, then the file writes.
+    renameTagWithFiles: (async (tagId: number, newValue: string) => {
+      const result = db.renameTagAndCascade(tagId, newValue)
+      const items = fileTagSync.writeItemsForField(result.trackIds, result.field)
+      const collected: unknown[] = []
+      await tagWrites.editTagsResolvingIdConflicts(items, (r) => collected.push(r), {
+        writeSerato: false
+      })
+      return { result, items, results: collected }
+    }) as unknown as (...args: never[]) => unknown,
+    composeWriteMeta: ((filepath: string, meta: Record<string, unknown>) =>
+      fileTagSync.composeWriteMeta(filepath, meta)) as unknown as (...args: never[]) => unknown,
+    // The reader the check uses, on its own.
+    readSeratoVisibleTags: ((paths: string[]) =>
+      sidecar.readSeratoVisibleTags(paths)) as unknown as (...args: never[]) => unknown,
 
     // Starts N writes at once without awaiting them, the way two IPC calls
     // arriving together would, and resolves once all have settled.

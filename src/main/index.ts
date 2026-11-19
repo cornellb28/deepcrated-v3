@@ -5,7 +5,7 @@ import icon from '../../resources/icon.png?asset'
 import { execSync } from 'child_process'
 import { randomUUID } from 'crypto'
 import { rename, stat, unlink, mkdir, readdir, readFile, open } from 'fs/promises'
-import { createReadStream, createWriteStream, type Stats } from 'fs'
+import { createReadStream, createWriteStream, existsSync, type Stats } from 'fs'
 import { startWatcher, stopWatcher, stopAllWatchers, setWatcherCallbacks } from './libraryWatcher'
 import { isUnchanged, normalizeMtime, withTrailingSep } from './rescan'
 import {
@@ -37,6 +37,7 @@ import {
   getAllTracks,
   getHealthSummary,
   getHealthQueue,
+  getDuplicateSignals,
   setTrackAnalysisError,
   getTrackById,
   getTracksByIds,
@@ -52,6 +53,7 @@ import {
   removeRoot,
   applyTag,
   removeTag,
+  getTagField,
   getTrackTags,
   getTrackTagsForTracks,
   getTagTracks,
@@ -85,6 +87,10 @@ import {
   updateTrackFilepath,
   getMissingTracks,
   relinkTrack,
+  holdForRelinkReview,
+  isHeldForRelink,
+  relinkHeldFile,
+  releaseHeldFile,
   markTrackAnalyzed,
   insertPendingChange,
   getPendingChanges,
@@ -119,7 +125,7 @@ import {
   buildCrateFileBaseName,
   type CrateExportSettings
 } from './serato'
-import { computePartialHash, findReconcileMatch } from './reconcile'
+import { computePartialHash, reconcileCandidateFor, reconcileFile } from './reconcile'
 import { isHealthCheckId } from './health/checks'
 import type { AnalysisIssue } from './analysisIssue'
 import {
@@ -129,6 +135,24 @@ import {
   type SeratoImportTally
 } from './serato/seratoImport'
 import { checkBuildStatus } from './staleBuild'
+import { readThirdPartyNotices } from './licenses'
+import {
+  composeWriteMeta,
+  isGroupingExtraField,
+  planFileTagSync,
+  scheduleGroupingWrite,
+  writeItemsForField,
+  writeItemsForSync
+} from './fileTagSync'
+import { setDeepLinkHandler, setSecondInstanceHandler } from './bootBridge'
+import {
+  focusLaunchScreen,
+  handOffToMainWindow,
+  isLaunchScreenUp,
+  markLibraryReady,
+  reportLaunchFailure,
+  reportLaunchStage
+} from './launchScreen'
 import { applyFolderRename, planFolderRename } from './folderRename'
 import { expectMove, cancelExpectation } from './expectedChanges'
 import { buildFilename, type TemplateTrack } from './filenameTemplate'
@@ -192,8 +216,12 @@ interface ImportProgressPayload {
   // without a second IPC round trip.
   folderPath: string
   // Of `found`, how many were relinked to an existing (missing) track row
-  // instead of inserted as new — see findReconcileMatch.
+  // instead of inserted as new — see reconcileFile.
   relinked: number
+  // Files held back for the DJ to pick which missing track they are (several
+  // share their canonical id) — neither inserted nor relinked. See
+  // holdForRelinkReview in db.ts.
+  needsReview: number
   // Files the walk found exactly where the DB already had them, with an
   // unchanged size and mtime — no tag read, just a last_seen_at stamp.
   unchanged: number
@@ -218,6 +246,7 @@ interface ImportJob {
   found: number
   skipped: number
   relinked: number
+  needsReview: number
   unchanged: number
   swept: number
   total: number
@@ -447,6 +476,7 @@ function buildProgressPayload(
     currentFolder,
     folderPath: job.folderPath,
     relinked: job.relinked,
+    needsReview: job.needsReview,
     unchanged: job.unchanged,
     swept: job.swept,
     rescan: job.rescan
@@ -516,6 +546,7 @@ async function scanFolderPaths(
         currentFolder: dir,
         folderPath: job.folderPath,
         relinked: job.relinked,
+        needsReview: job.needsReview,
         unchanged: job.unchanged,
         swept: job.swept,
         rescan: job.rescan
@@ -1166,6 +1197,7 @@ async function runFolderImport(
   cancelled?: boolean
   unchanged?: number
   relinked?: number
+  needsReview?: number
   swept?: number
 }> {
   // Pause watcher for this root during import to avoid EMFILE
@@ -1197,6 +1229,7 @@ async function runFolderImport(
           found: 0,
           skipped: 0,
           relinked: 0,
+          needsReview: 0,
           unchanged: 0,
           swept: 0,
           total: 0,
@@ -1410,22 +1443,22 @@ async function runFolderImport(
     // existing row left alone) instead of becoming a duplicate. Matched
     // candidates are spliced out of reconcilePool as they're consumed so
     // the same missing row can't match twice within one job.
+    // A file that probably is one of several missing tracks (by canonical id)
+    // is held back for the DJ to pick instead — neither inserted nor
+    // relinked. The pool only has rows when there is a matchingRoot.
     const toInsert: typeof parsedRows = []
     for (const row of parsedRows) {
-      const match = await findReconcileMatch(
-        {
-          filepath: row.data.filepath,
-          filename: row.data.filename,
-          client_uuid: row.data.client_uuid,
-          file_size_bytes: row.data.file_size_bytes,
-          duration_sec: row.data.duration_sec
-        },
-        reconcilePool
-      )
-      if (match === null) {
+      const outcome = await reconcileFile(reconcileCandidateFor(row.data), reconcilePool)
+      if (outcome.kind === 'ambiguous' && matchingRoot) {
+        holdForRelinkReview(matchingRoot.id, row.data.filepath, outcome.candidates)
+        job.needsReview++
+        continue
+      }
+      if (outcome.kind !== 'match') {
         toInsert.push(row)
         continue
       }
+      const match = outcome.track
       relinkTrack(match.id, row.data.filepath)
       reconcilePool.splice(reconcilePool.indexOf(match), 1)
       // The row now lives at the new path, which the walk did see, so it is
@@ -1566,6 +1599,7 @@ async function runFolderImport(
     jobId: id,
     unchanged: job.unchanged,
     relinked: job.relinked,
+    needsReview: job.needsReview,
     swept: job.swept
   }
 }
@@ -1749,6 +1783,9 @@ function createWindow(): void {
     width: 1200,
     height: 1000,
     show: false,
+    // Same as the app's background (main.css --background), so nothing
+    // flashes white before the first paint.
+    backgroundColor: '#121212',
     autoHideMenuBar: true,
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
@@ -1767,9 +1804,14 @@ function createWindow(): void {
     void refreshAccountState()
   })
 
-  win.on('ready-to-show', () => {
-    win.show()
-  })
+  // Launch screen hook: while it is up, it decides when this window shows
+  // (painted AND library loaded). Otherwise — a window re-created later —
+  // show it as soon as it paints, as before.
+  if (!handOffToMainWindow(win)) {
+    win.on('ready-to-show', () => {
+      win.show()
+    })
+  }
 
   win.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url)
@@ -1785,43 +1827,24 @@ function createWindow(): void {
   }
 }
 
-// ── Deep-link registration for the OAuth callback ────────────────────────
-// Must happen before whenReady: on Windows/Linux the second launch that the
-// browser triggers has to be able to hand its URL to the first instance,
-// and that only works if the lock is already held.
-//
-// requestSingleInstanceLock also fixes a real problem beyond auth — two
-// copies of the app would open two better-sqlite3 handles on the same
-// library.db and two chokidar watchers per root.
-const gotSingleInstanceLock = app.requestSingleInstanceLock()
-if (!gotSingleInstanceLock) {
-  app.quit()
-} else {
-  // Windows/Linux deliver the deepcrated:// URL as an argv entry on the
-  // second instance, not as an event — so it has to be dug out of the
-  // command line. macOS uses 'open-url' instead (registered below).
-  app.on('second-instance', (_event, argv) => {
-    const url = argv.find((arg) => CALLBACK_PROTOCOLS.some((s) => arg.startsWith(`${s}://`)))
-    if (url) void handleAuthCallback(url)
-
-    // Whether or not it was a deep link, the DJ just tried to open the app:
-    // surface the window they already have, or reopen it if they closed it
-    // (macOS keeps the app running with no window, as 'activate' handles).
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore()
-      mainWindow.focus()
-    } else if (app.isReady()) {
-      createWindow()
-    }
-  })
-}
-
-// macOS. Registered at module scope, not inside whenReady, because a cold
-// start triggered by clicking the callback link can fire this before the app
-// is ready — handleAuthCallback tolerates a not-yet-existing window.
-app.on('open-url', (event, url) => {
-  event.preventDefault()
-  void handleAuthCallback(url)
+// ── Deep links and second launches ───────────────────────────────────────
+// The single-instance lock and the 'second-instance' / 'open-url' listeners
+// live in boot.ts, which has to register them before Electron is ready —
+// before this file (and the database) is even loaded. They hand over here;
+// a link that arrived while the launch screen was up is delivered now.
+setDeepLinkHandler((url) => void handleAuthCallback(url))
+setSecondInstanceHandler(() => {
+  if (mainWindow && mainWindow.isVisible()) {
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    mainWindow.focus()
+  } else if (!mainWindow && !isLaunchScreenUp() && app.isReady()) {
+    // macOS keeps the app running after its window is closed (mainWindow is
+    // nulled on 'closed'): reopen it, as 'activate' does.
+    createWindow()
+  } else {
+    // Still behind the launch screen: surface that instead.
+    focusLaunchScreen()
+  }
 })
 
 // In dev the executable is Electron itself, so the OS has to be told which
@@ -1859,30 +1882,13 @@ async function handleAuthCallback(url: string): Promise<void> {
   }
 }
 
-protocol.registerSchemesAsPrivileged([
-  {
-    scheme: 'artwork',
-    privileges: {
-      secure: true,
-      supportFetchAPI: true,
-      bypassCSP: true
-    }
-  },
-  {
-    scheme: 'audio',
-    privileges: {
-      standard: true,
-      secure: true,
-      supportFetchAPI: true,
-      bypassCSP: true
-    }
-  }
-])
+// The artwork:// and audio:// schemes are registered as privileged in
+// boot.ts: that has to happen before Electron is ready.
 
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
-app.whenReady().then(() => {
+const appStartup = app.whenReady().then(() => {
   startStatsUploader()
   setArtistCleanSender((channel, payload) => mainWindow?.webContents.send(channel, payload))
   startIdentityBackfill({
@@ -1982,7 +1988,8 @@ app.whenReady().then(() => {
   })
 
   // Set app user model id for windows
-  electronApp.setAppUserModelId('com.electron')
+  // Matches appId in electron-builder.yml.
+  electronApp.setAppUserModelId('com.deepcrated.app')
 
   // Default open or close DevTools by F12 in development
   // and ignore CommandOrControl + R in production.
@@ -2111,6 +2118,7 @@ app.whenReady().then(() => {
       let imported = 0
       let unchanged = 0
       let relinked = 0
+      let needsReview = 0
       let swept = 0
       let total = 0
       const skippedRoots: string[] = []
@@ -2128,6 +2136,7 @@ app.whenReady().then(() => {
         total += result.total
         unchanged += result.unchanged ?? 0
         relinked += result.relinked ?? 0
+        needsReview += result.needsReview ?? 0
         swept += result.swept ?? 0
       }
 
@@ -2138,6 +2147,7 @@ app.whenReady().then(() => {
         imported,
         unchanged,
         relinked,
+        needsReview,
         swept,
         total
       }
@@ -2179,10 +2189,13 @@ app.whenReady().then(() => {
     }
   })
 
+  // skipReconcile: the DJ already chose "Import as new" for a held file, so
+  // matching it against the missing pool again would only hold it again.
   async function importSingleFile(
     event: Electron.IpcMainInvokeEvent,
-    filepath: string
-  ): Promise<{ ok: boolean; trackId?: number; error?: string }> {
+    filepath: string,
+    options: { skipReconcile?: boolean } = {}
+  ): Promise<{ ok: boolean; trackId?: number; needsReview?: boolean; error?: string }> {
     try {
       // Phase 1
       const fastResult = await readTagsFast(filepath)
@@ -2212,16 +2225,18 @@ app.whenReady().then(() => {
       // here — this is the manual dialog-import path (also what the
       // EmptyView/Board Finder-drop targets call per file) — so this
       // checks every missing track in the library, not just one root's.
-      const match = await findReconcileMatch(
-        {
-          filepath,
-          filename: trackData.filename,
-          client_uuid: trackData.client_uuid,
-          file_size_bytes: trackData.file_size_bytes,
-          duration_sec: trackData.duration_sec
-        },
-        getMissingTracks()
-      )
+      const outcome = options.skipReconcile
+        ? ({ kind: 'none' } as const)
+        : await reconcileFile(reconcileCandidateFor(trackData), getMissingTracks())
+      if (outcome.kind === 'ambiguous') {
+        // Probably one of several missing tracks: wait for the DJ to pick.
+        holdForRelinkReview(null, filepath, outcome.candidates)
+        console.log(
+          `[import] held for review (${outcome.candidates.length} possible tracks): ${filepath}`
+        )
+        return { ok: true, needsReview: true }
+      }
+      const match = outcome.kind === 'match' ? outcome.track : null
 
       let trackId: number
       if (match) {
@@ -2467,6 +2482,8 @@ app.whenReady().then(() => {
     if (!isHealthCheckId(checkId)) throw new Error('Unknown health check')
     return getHealthQueue(checkId)
   })
+  // Why each track in the duplicates queue is there (name / size / canonical).
+  ipcMain.handle('health:duplicate-signals', () => getDuplicateSignals())
 
   ipcMain.handle('db:track-by-id', (_e, id: number) => getTrackById(id))
 
@@ -2630,20 +2647,54 @@ app.whenReady().then(() => {
   ipcMain.handle(
     'sidecar:edit-tags-batch',
     (event, items: EditTagsBatchItem[], options?: { writeSerato?: boolean }) => {
-      const job: EditTagsJob = {
-        type: 'editTags',
-        id: randomUUID(),
-        total: items.length,
-        doneCount: 0,
-        currentFile: '',
-        status: 'running',
-        failed: []
-      }
-      jobs.set(job.id, job)
-      runEditTagsJob(event, job, items, options?.writeSerato ?? true) // fire-and-forget — progress goes out over edit-tags:progress
-      return { jobId: job.id }
+      const composed = items.map((item) => ({
+        ...item,
+        meta: composeWriteMeta(item.filepath, item.meta as Record<string, unknown>)
+      }))
+      return { jobId: startEditTagsJob(event, composed, options?.writeSerato ?? true) }
     }
   )
+
+  // Starts a background tag-write job; progress goes out over
+  // edit-tags:progress, same as a bulk edit.
+  function startEditTagsJob(
+    event: Electron.IpcMainInvokeEvent,
+    items: EditTagsBatchItem[],
+    writeSerato: boolean
+  ): string {
+    const job: EditTagsJob = {
+      type: 'editTags',
+      id: randomUUID(),
+      total: items.length,
+      doneCount: 0,
+      currentFile: '',
+      status: 'running',
+      failed: []
+    }
+    jobs.set(job.id, job)
+    void runEditTagsJob(event, job, items, writeSerato)
+    return job.id
+  }
+
+  // ── Tags in your files (Settings > Serato) ────────────────
+  // Reads every file the way Serato does and lists where it is out of step
+  // with DeepCrated; nothing is written until the DJ approves.
+  ipcMain.handle('tags:file-sync-plan', async () => {
+    try {
+      return { ok: true, plan: await planFileTagSync() }
+    } catch (err) {
+      return { ok: false, error: (err as Error).message }
+    }
+  })
+
+  ipcMain.handle('tags:file-sync-write', (event, trackIds: unknown) => {
+    if (!Array.isArray(trackIds) || !trackIds.every((id) => typeof id === 'number')) {
+      return { ok: false, error: 'Invalid track list' }
+    }
+    const items = writeItemsForSync(trackIds as number[])
+    if (items.length === 0) return { ok: true, files: 0 }
+    return { ok: true, files: items.length, jobId: startEditTagsJob(event, items, false) }
+  })
 
   // ── Move files to a folder (job-based — see MoveJob/runMoveJob above) ──
 
@@ -2788,7 +2839,9 @@ app.whenReady().then(() => {
     'sidecar:write-tags',
     async (_e, filepath: string, meta: Record<string, unknown>) => {
       try {
-        const results = await writeTagsForFile(filepath, meta)
+        // Grouping carries vibe/venue/custom (and label/remixer on m4a/wav)
+        // for Serato — see fileTags.ts.
+        const results = await writeTagsForFile(filepath, composeWriteMeta(filepath, meta))
         return { ok: true, results }
       } catch (err) {
         return { ok: false, error: (err as Error).message }
@@ -3168,17 +3221,26 @@ app.whenReady().then(() => {
   // into an existing tag of the same field if the new value collides.
   // Removes a tag from the library entirely and re-derives every track that
   // carried it. Distinct from tags:remove, which only unlinks ONE track.
-  ipcMain.handle('tags:delete', (_e, tagId: number) => {
+  // Both used to change the database only, so Serato never saw a rename or
+  // a delete. Every file that carried the tag is now rewritten for that
+  // field, in the background (filesQueued tells the renderer how many).
+  ipcMain.handle('tags:delete', (event, tagId: number) => {
     try {
-      return { ok: true, ...deleteTagAndCascade(tagId) }
+      const result = deleteTagAndCascade(tagId)
+      const items = writeItemsForField(result.trackIds, result.field)
+      if (items.length > 0) startEditTagsJob(event, items, false)
+      return { ok: true, ...result, filesQueued: items.length }
     } catch (err) {
       return { ok: false, error: (err as Error).message }
     }
   })
 
-  ipcMain.handle('tags:rename', (_e, tagId: number, newValue: string) => {
+  ipcMain.handle('tags:rename', (event, tagId: number, newValue: string) => {
     try {
-      return { ok: true, ...renameTagAndCascade(tagId, newValue) }
+      const result = renameTagAndCascade(tagId, newValue)
+      const items = writeItemsForField(result.trackIds, result.field)
+      if (items.length > 0) startEditTagsJob(event, items, false)
+      return { ok: true, ...result, filesQueued: items.length }
     } catch (err) {
       return { ok: false, error: (err as Error).message }
     }
@@ -3196,6 +3258,10 @@ app.whenReady().then(() => {
   ipcMain.handle('tags:apply', (_e, trackId: number, tagId: number) => {
     try {
       applyTag(trackId, tagId)
+      // vibe/venue/custom have no frame of their own: they live in the
+      // file's Grouping, so it is rewritten (debounced) — see fileTags.ts.
+      const field = getTagField(tagId)
+      if (field && isGroupingExtraField(field)) scheduleGroupingWrite(trackId)
       return { ok: true }
     } catch (err) {
       return { ok: false, error: (err as Error).message }
@@ -3204,7 +3270,9 @@ app.whenReady().then(() => {
 
   ipcMain.handle('tags:remove', (_e, trackId: number, tagId: number) => {
     try {
+      const field = getTagField(tagId)
       removeTag(trackId, tagId)
+      if (field && isGroupingExtraField(field)) scheduleGroupingWrite(trackId)
       return { ok: true }
     } catch (err) {
       return { ok: false, error: (err as Error).message }
@@ -3556,16 +3624,20 @@ app.whenReady().then(() => {
         // misses: filename changed, or the matching add arrived later than
         // that 2s window (a directory tree's per-file events can spread
         // out further than a single file's would).
-        const match = await findReconcileMatch(
-          {
-            filepath,
-            filename: trackData.filename,
-            client_uuid: trackData.client_uuid,
-            file_size_bytes: trackData.file_size_bytes,
-            duration_sec: trackData.duration_sec
-          },
+        const outcome = await reconcileFile(
+          reconcileCandidateFor(trackData),
           getMissingTracks(rootId)
         )
+        if (outcome.kind === 'ambiguous') {
+          // Probably one of several missing tracks: wait for the DJ to pick
+          // in the review dialog rather than import or relink it.
+          // TODO(relink): no live notice for this yet; it shows the next time
+          // the DJ opens Review changes (or in the next import summary).
+          holdForRelinkReview(rootId, filepath, outcome.candidates)
+          console.log(`[watcher] held for review: ${filepath}`)
+          return
+        }
+        const match = outcome.kind === 'match' ? outcome.track : null
 
         if (match) {
           relinkTrack(match.id, filepath)
@@ -3746,6 +3818,7 @@ app.whenReady().then(() => {
 
   // ── Start watchers for all registered roots ───────────────
 
+  reportLaunchStage('folders') // launch screen hook
   const roots = getAllRoots()
 
   for (const root of roots) {
@@ -3774,6 +3847,36 @@ app.whenReady().then(() => {
     }
   })
 
+  // A held file (see holdForRelinkReview): the DJ picked which missing track
+  // it is. changeId is that candidate's pending_changes row.
+  ipcMain.handle('watcher:relink-held', (_e, changeId: unknown) => {
+    if (typeof changeId !== 'number') return { ok: false, error: 'Invalid choice' }
+    try {
+      const result = relinkHeldFile(changeId, existsSync)
+      if (result.ok) {
+        mainWindow?.webContents.send('watcher:track-moved', {
+          trackId: result.trackId,
+          oldPath: result.oldPath,
+          newPath: result.newPath
+        })
+      }
+      return result
+    } catch (err) {
+      return { ok: false, error: (err as Error).message }
+    }
+  })
+
+  // A held file: the DJ says it is none of the candidates. Imported exactly
+  // like a dropped file, minus the matching that held it in the first place.
+  ipcMain.handle('watcher:import-held', async (event, filepath: unknown) => {
+    if (typeof filepath !== 'string' || !isHeldForRelink(filepath)) {
+      return { ok: false, error: 'This file is no longer waiting for a choice.' }
+    }
+    const result = await importSingleFile(event, filepath, { skipReconcile: true })
+    if (result.ok) releaseHeldFile(filepath)
+    return result
+  })
+
   // Start/stop watcher when DJ adds/removes a root
   ipcMain.handle('watcher:start', (_e, rootId: number, rootPath: string) => {
     startWatcher(rootId, rootPath)
@@ -3783,6 +3886,22 @@ app.whenReady().then(() => {
   ipcMain.handle('watcher:stop', async (_e, rootId: number) => {
     await stopWatcher(rootId)
     return { ok: true }
+  })
+
+  // ── Launch screen hooks ───────────────────────────────────
+  // The renderer's first library load finished (or failed). Only the first
+  // report matters; later ones (a dev reload) are no-ops.
+  // Settings > About: licence texts for software shipped with the app.
+  ipcMain.handle('app:licenses', () => readThirdPartyNotices())
+
+  ipcMain.handle('app:library-ready', () => {
+    markLibraryReady()
+  })
+  ipcMain.handle('app:library-load-failed', (_e, message: unknown) => {
+    reportLaunchFailure(
+      "DeepCrated couldn't load your library",
+      typeof message === 'string' ? message : 'Unknown error'
+    )
   })
 
   createWindow()
@@ -3821,6 +3940,10 @@ app.whenReady().then(() => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
 })
+
+// Launch screen hook: anything the startup block above throws lands on the
+// launch screen with Retry / Quit instead of an unhandled rejection.
+void appStartup.catch((err) => reportLaunchFailure("DeepCrated couldn't start", err))
 
 app.on('before-quit', async () => {
   stopSessionRefresh()

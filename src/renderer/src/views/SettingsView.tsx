@@ -7,6 +7,9 @@ import { ReconciliationModal } from '@renderer/components/ReconciliationModal'
 import { SeratoImportConfirmDialog } from '@renderer/components/SeratoImportConfirmDialog'
 import { StatsConsentSwitch } from '../components/StatsConsentSwitch'
 import { IdentityLookupSwitch } from '../components/IdentityLookupSwitch'
+import { FingerprintStatus } from '../components/FingerprintStatus'
+import { FileTagSync } from '../components/FileTagSync'
+import { OpenSourceNotices } from '../components/OpenSourceNotices'
 import { ArtistCleanSettings } from '../components/ArtistCleanSettings'
 import { useLibraryStore } from '../store/useLibraryStore'
 import { FilenameTemplateEditor } from '../components/FilenameTemplateEditor'
@@ -43,13 +46,14 @@ const SERATO_OVERWRITE_KEY = 'serato_overwrite_existing'
 // whichever tab was open last.
 export const SETTINGS_TAB_KEY = 'settings_tab'
 
-type TabId = 'account' | 'plan' | 'library' | 'serato' | 'privacy'
+type TabId = 'account' | 'plan' | 'library' | 'serato' | 'privacy' | 'about'
 const TABS: { id: TabId; label: string }[] = [
   { id: 'account', label: 'Account' },
   { id: 'plan', label: 'Plan' },
   { id: 'library', label: 'Library' },
   { id: 'serato', label: 'Serato' },
-  { id: 'privacy', label: 'Privacy' }
+  { id: 'privacy', label: 'Privacy' },
+  { id: 'about', label: 'About' }
 ]
 
 function isTabId(value: string | null): value is TabId {
@@ -58,7 +62,8 @@ function isTabId(value: string | null): value is TabId {
     value === 'plan' ||
     value === 'library' ||
     value === 'serato' ||
-    value === 'privacy'
+    value === 'privacy' ||
+    value === 'about'
   )
 }
 
@@ -271,6 +276,7 @@ export function SettingsView({
       const parts: string[] = []
       if (result.imported) parts.push(`${result.imported} checked`)
       if (result.relinked) parts.push(`${result.relinked} relinked`)
+      if (result.needsReview) parts.push(`${result.needsReview} to review`)
       // Deliberately worded "missing", not "removed" — nothing was deleted.
       if (result.swept) parts.push(`${result.swept} now missing`)
       if (result.skippedRoots?.length) {
@@ -595,6 +601,13 @@ export function SettingsView({
           {/* ── Serato ──────────────────────────────────────────────── */}
           <TabsContent value="serato">
             <Section
+              title="Tags in your files"
+              description="Serato shows only what is in the audio file. Check lists the files whose tags differ from DeepCrated, read the way Serato reads them, and writes the ones you approve. Vibe, venue and custom tags — and label and remixer on M4A and WAV, which Serato does not read — go into Grouping."
+            >
+              <FileTagSync />
+            </Section>
+
+            <Section
               title="Serato library"
               description="Where .crate files are written. Leave it on the default unless your Serato library lives somewhere unusual."
             >
@@ -685,10 +698,22 @@ export function SettingsView({
 
             <Section
               title="Track identification"
-              description="Recognizing tracks by their audio, so the same song is the same song everywhere."
+              description="DeepCrated reads ID tags and makes an audio fingerprint on your computer to recognize the same song across files. Nothing leaves your device unless you turn on the option below."
               last
             >
+              <FingerprintStatus />
               <IdentityLookupSwitch />
+            </Section>
+          </TabsContent>
+
+          {/* ── About ───────────────────────────────────────────────── */}
+          <TabsContent value="about">
+            <Section
+              title="Open-source notices"
+              description="DeepCrated ships these components with the app, under their own licences."
+              last
+            >
+              <OpenSourceNotices />
             </Section>
           </TabsContent>
         </div>

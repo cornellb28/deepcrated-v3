@@ -47,8 +47,10 @@ export interface StatsStore {
   setInstallId(id: string): void
   clearInstallId(): void
 
-  // The track's shareable id, or null if it has none yet.
-  getCanonicalTrackId(trackId: number): string | null
+  // The track's shareable id for stats (identity/canonical.ts
+  // computeStatsTrackId: never a looked-up recording id), or null if it has
+  // none yet.
+  getStatsTrackId(trackId: number): string | null
 
   // privacy flags. An unknown id reads as private: fail closed.
   isTrackPrivate(trackId: number): boolean

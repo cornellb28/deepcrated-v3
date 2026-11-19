@@ -45,6 +45,7 @@
     "zustand": "^5.0.15"
   },
   "devDependencies": {
+    "@aws-sdk/client-s3": "^3.1152.0",
     "@electron-toolkit/eslint-config-prettier": "^3.0.0",
     "@electron-toolkit/eslint-config-ts": "^3.1.0",
     "@electron-toolkit/tsconfig": "^2.0.0",
